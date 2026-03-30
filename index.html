@@ -45,7 +45,7 @@
     import { createRoot } from 'react-dom/client';
     import { initializeApp, getApps, getApp } from 'firebase/app';
     import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, deleteDoc, serverTimestamp, updateDoc, writeBatch, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
-    import { getAuth, onAuthStateChanged, signInAnonymously, setPersistence, browserLocalPersistence, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+    import { getAuth, onAuthStateChanged, signInAnonymously, setPersistence, browserLocalPersistence, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
     import { Wallet, Plus, TrendingUp, GraduationCap, Users, Loader2, Trash2, X, Landmark, PiggyBank, Target, Activity, Sparkles, Coins, CalendarCheck, UploadCloud, Wifi, WifiOff, Database, User as UserIcon, Edit3, FileCode, LayoutDashboard, History, LayoutList, ShoppingCart, Car, Coffee, Smartphone as PhoneIcon, ChevronRight, CheckCircle2, Banknote, BrainCircuit, AlertTriangle, RefreshCw, FileText, Search } from 'lucide-react';
 
     // ==========================================
@@ -226,6 +226,10 @@
 
     function App() {
       const [user, setUser] = useState(null);
+      const [appPin, setAppPin] = useState(localStorage.getItem('lavender_pin') || '');
+      const [isUnlocked, setIsUnlocked] = useState(!localStorage.getItem('lavender_pin'));
+      const [pinInput, setPinInput] = useState('');
+      
       const [isOnline, setIsOnline] = useState(navigator.onLine);
 
       const [transactions, setTransactions] = useState([]);
@@ -528,6 +532,42 @@
       );
 
       if (!user) return <LoginScreen />;
+      
+      if (!isUnlocked) {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-6 bg-slate-900 absolute inset-0 z-[1000] flex-col gap-6">
+            <div className="w-20 h-20 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto border border-emerald-500/30">
+               <span className="text-3xl">🔒</span>
+            </div>
+            <h2 className="text-2xl font-black text-white">Unlock Lavender</h2>
+            <div className="flex gap-2 mb-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className={`w-4 h-4 rounded-full ${pinInput.length > i ? 'bg-emerald-400' : 'bg-slate-700'}`}></div>
+              ))}
+            </div>
+            <div className="grid grid-cols-3 gap-3 w-full max-w-[240px]">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'C', 0, '✓'].map(btn => (
+                <button key={btn} onClick={() => {
+                  if (btn === 'C') setPinInput('');
+                  else if (btn === '✓') {
+                    if (pinInput === appPin) setIsUnlocked(true);
+                    else { showToast("Incorrect PIN", "error"); setPinInput(''); }
+                  }
+                  else if (pinInput.length < 4) {
+                    const next = pinInput + btn;
+                    setPinInput(next);
+                    if (next.length === 4 && next === appPin) {
+                       setTimeout(() => setIsUnlocked(true), 200);
+                    } else if (next.length === 4) {
+                       setTimeout(() => { showToast("Incorrect PIN", "error"); setPinInput(''); }, 200);
+                    }
+                  }
+                }} className="h-16 bg-slate-800 text-white rounded-2xl font-black text-xl active:bg-slate-700 transition-colors">{btn}</button>
+              ))}
+            </div>
+          </div>
+        );
+      }
 
       return (
         <div className="min-h-screen bg-slate-50 text-slate-900 pb-28 font-sans max-w-md mx-auto shadow-2xl relative overflow-x-hidden">
@@ -600,16 +640,27 @@
                         savingsPercent: parseFloat(settings?.savingsPercent) || 30,
                         primaryCurrency: pCur,
                         secondaryCurrency: sCur,
-                        salaryCurrency: salCur
+                        salaryCurrency: salCur,
+                        uiPin: settings?.uiPin || ''
                       };
+                      
+                      const np = fd.get('newPassword');
+                      if (np && np.length >= 6) {
+                        updatePassword(user, np).then(() => showToast('Password updated!')).catch((err) => showToast('Error: ' + err.message, 'error'));
+                      }
+                      
+                      if (settings.uiPin !== undefined) {
+                        setAppPin(settings.uiPin);
+                        localStorage.setItem('lavender_pin', settings.uiPin);
+                      }
 
                       try {
-                        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'config'), newConfig, { merge: true });
+                        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'config'), { ...settings, ...newConfig, updatedAt: serverTimestamp() }, { merge: true });
                         setPrimaryCurrency(pCur);
                         setSecondaryCurrency(sCur);
-                        showToast("Settings Updated ✓");
+                        showToast('Settings Updated');
                       } catch(err) {
-                        showToast("Saved to offline cache", "info");
+                        showToast('Saved to offline cache', 'info');
                       }
                     }} 
                     className="space-y-6"
@@ -628,7 +679,29 @@
                         </select>
                       </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="flex justify-between items-center bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
+                      <div>
+                        <p className="text-[10px] font-black uppercase text-indigo-400 tracking-widest">Logged In As</p>
+                        <p className="font-bold text-indigo-900">{user.email || 'Anonymous Account'}</p>
+                      </div>
+                      <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-500"><UserIcon size={20} /></div>
+                    </div>
+
+                    <div className="space-y-4 pt-4 border-t border-slate-100">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">App Security PIN (4 Digits)</label>
+                        <input type="password" maxLength={4} placeholder={appPin ? '**** (Active)' : 'Leave empty for no PIN lock'} value={settings?.uiPin === undefined ? appPin : settings.uiPin} onChange={(e) => {
+                          const val = e.target.value.replace(/[^0-9]/g, '');
+                          setSettings({...settings, uiPin: val});
+                        }} className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-black focus:ring-2 ring-purple-200" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Change Cloud Password</label>
+                        <input name="newPassword" type="password" placeholder="Enter new password to change..." className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-bold text-sm focus:ring-2 ring-purple-200" />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate-100">
                       <div className="col-span-2 space-y-2">
                         <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Base Monthly Salary</label>
                         <input name="salary" type="number" step="0.01" value={settings?.salary === 0 ? '' : (settings?.salary || '')} onChange={(e) => setSettings({...settings, salary: e.target.value})} className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-black text-lg focus:ring-2 ring-purple-200 transition-all" />
