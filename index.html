@@ -67,23 +67,86 @@
     .animate-spin { animation: spin 1s linear infinite; }
 
     #root { min-height: 100vh; }
+    
+    .error-card {
+      background: #fff1f2;
+      border: 2px solid #fda4af;
+      padding: 1.5rem;
+      border-radius: 1rem;
+      color: #9f1239;
+      max-width: 300px;
+      text-align: center;
+      margin: 20px;
+    }
   </style>
 </head>
 
 <body class="bg-slate-50">
   <!-- React Mount Point -->
   <div id="root">
-    <!-- Initial Luxury Loader -->
-    <div class="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white">
+    <!-- Initial Loader with Diagnostic Message -->
+    <div class="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white p-6">
       <div id="loader-spinner" class="w-16 h-16 border-4 border-purple-500/20 border-t-purple-500 rounded-full animate-spin"></div>
       <p id="loader-text" class="mt-8 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Connecting Portfolio</p>
+      
+      <!-- Hidden Emergency Message (Shows only if it hangs) -->
+      <div id="emergency-notice" class="hidden mt-12 space-y-4 text-center">
+         <div class="p-4 bg-white/5 border border-white/10 rounded-2xl animate-pulse">
+            <p class="text-rose-400 text-xs font-bold uppercase tracking-widest">Network Restriction Detected</p>
+            <p class="text-slate-400 text-[10px] mt-2 max-w-[250px]">The application is struggling to reach the database or core libraries. Check your internet or try another browser.</p>
+         </div>
+         <button onclick="location.reload()" class="px-6 py-3 bg-white text-slate-900 rounded-full font-black text-[10px] uppercase tracking-widest active-scale">Retry Sync</button>
+      </div>
     </div>
   </div>
 
   <script>
     // ==========================================
+    // DIAGNOSTIC STARTUP
+    // ==========================================
+    
+    // Show emergency notice after 8 seconds of circling
+    setTimeout(() => {
+      const notice = document.getElementById('emergency-notice');
+      if (notice) notice.classList.remove('hidden');
+    }, 8000);
+
+    // Global Error Catcher to identify why it's not opening
+    window.onerror = function(msg, url, lineNo, columnNo, error) {
+      console.error("System Error caught:", msg);
+      const splashMsg = document.getElementById('loader-text');
+      if (splashMsg) splashMsg.innerText = "System Failure: " + msg;
+      return false;
+    };
+
+    // Library verification
+    const checkLibs = () => {
+      const missing = [];
+      if (typeof React === 'undefined') missing.push('React');
+      if (typeof ReactDOM === 'undefined') missing.push('ReactDOM');
+      if (typeof firebase === 'undefined') missing.push('Firebase');
+      if (typeof htm === 'undefined') missing.push('HTM');
+      return missing;
+    };
+
+    // ==========================================
     // INITIALIZATION & CONFIG
     // ==========================================
+    
+    const libsMissing = checkLibs();
+    if (libsMissing.length > 0) {
+      document.getElementById('root').innerHTML = `
+        <div class="h-screen w-full flex flex-col items-center justify-center bg-slate-900">
+          <div class="error-card">
+            <h3 class="font-bold">Resource Blocked</h3>
+            <p class="text-xs mt-2">Could not load: ${libsMissing.join(', ')}. This usually happens if your firewall blocks UNPKG or GSTatic.</p>
+            <button onclick="location.reload()" class="mt-4 px-4 py-2 bg-rose-500 text-white rounded-lg text-xs font-bold">Try Refresh</button>
+          </div>
+        </div>
+      `;
+      throw new Error("Missing libraries: " + libsMissing.join(', '));
+    }
+
     const { useState, useEffect, useMemo, useRef } = React;
     const html = htm.bind(React.createElement);
 
@@ -97,15 +160,22 @@
       appId: "1:261484355674:web:6f322df6f5a4c83080f863"
     };
 
-    // Initialize Firebase (v8 Namespaced for file:// stability)
-    if (!firebase.apps.length) {
-      firebase.initializeApp(firebaseConfig);
+    // Initialize Firebase
+    try {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+      }
+    } catch(e) {
+      alert("Firebase Init Error: " + e.message);
     }
+    
     const auth = firebase.auth();
     const db = firebase.firestore();
 
-    // Enable persistence if possible
-    db.enablePersistence().catch(err => console.warn("Persistence error:", err.code));
+    // Enable persistence with silence on restricted protocols
+    db.enablePersistence({ synchronizeTabs: true }).catch(err => {
+      console.warn("Persistence declined:", err.code);
+    });
 
     // ==========================================
     // CONSTANTS & HELPERS
@@ -285,6 +355,7 @@
 
       // Lifecycle
       useEffect(() => {
+        console.log("App Component Init");
         const h1 = () => setIsOnline(true); const h2 = () => setIsOnline(false);
         window.addEventListener('online', h1); window.addEventListener('offline', h2);
         
@@ -293,8 +364,15 @@
           .then(data => { if (data?.rates?.INR) setExchangeRate(data.rates.INR); });
 
         const unsubAuth = auth.onAuthStateChanged(async u => {
+           console.log("Auth State Changed:", u ? "User Authenticated" : "No User");
            if (!u) {
-             try { await auth.signInAnonymously(); } catch(e) { console.error(e); }
+             try { 
+               console.log("Attempting Anonymous Sign-In...");
+               await auth.signInAnonymously(); 
+             } catch(e) { 
+               console.error("Auth Fail:", e.message); 
+               setLoading(false); // Surface error instead of circling
+             }
            } else {
              setUser(u);
              setLoading(false);
@@ -424,6 +502,17 @@
       };
 
       if (loading) return null;
+
+      // Handle Authentication Error View
+      if (!user) {
+        return html`
+          <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white p-10 text-center">
+            <h1 className="text-2xl font-black text-rose-400">Connection Failed</h1>
+            <p className="text-slate-400 mt-4 text-sm font-medium">The application couldn't verify your account session. This is common on corporate networks or strictly private browsers.</p>
+            <button onClick=${() => location.reload()} className="mt-8 px-10 py-4 bg-white text-slate-900 rounded-full font-black text-xs uppercase tracking-widest">Force Reconnect</button>
+          </div>
+        `;
+      }
 
       return html`
         <div className="min-h-screen bg-slate-50 text-slate-900 pb-32 font-sans max-w-md mx-auto shadow-2xl relative overflow-x-hidden flex flex-col border-x border-slate-100">
@@ -561,8 +650,16 @@
       `;
     }
 
-    // Mount
-    ReactDOM.createRoot(document.getElementById("root")).render(html`<${App} />`);
+    // Mount with error checking
+    try {
+      console.log("Starting React Mount...");
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(html`<${App} />`);
+      console.log("Mount Command Sent.");
+    } catch(err) {
+      console.error("Mount Failure:", err);
+      document.getElementById('loader-text').innerText = "App Mount Error: " + err.message;
+    }
   </script>
 </body>
 
