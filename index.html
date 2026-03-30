@@ -45,7 +45,7 @@
     import { createRoot } from 'react-dom/client';
     import { initializeApp, getApps, getApp } from 'firebase/app';
     import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, deleteDoc, serverTimestamp, updateDoc, writeBatch, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
-    import { getAuth, onAuthStateChanged, signInAnonymously, setPersistence, browserLocalPersistence } from 'firebase/auth';
+    import { getAuth, onAuthStateChanged, signInAnonymously, setPersistence, browserLocalPersistence, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
     import { Wallet, Plus, TrendingUp, GraduationCap, Users, Loader2, Trash2, X, Landmark, PiggyBank, Target, Activity, Sparkles, Coins, CalendarCheck, UploadCloud, Wifi, WifiOff, Database, User as UserIcon, Edit3, FileCode, LayoutDashboard, History, LayoutList, ShoppingCart, Car, Coffee, Smartphone as PhoneIcon, ChevronRight, CheckCircle2, Banknote, BrainCircuit, AlertTriangle, RefreshCw, FileText, Search } from 'lucide-react';
 
     // ==========================================
@@ -174,6 +174,56 @@
       }, [transactions, commitments, debts, settings, rates]);
     }
 
+    function LoginScreen() {
+      const [email, setEmail] = useState('');
+      const [pwd, setPwd] = useState('');
+      const [isReg, setIsReg] = useState(false);
+      const [err, setErr] = useState('');
+      const [isLoading, setIsLoading] = useState(false);
+      
+      const handleAuth = async (e) => {
+        e.preventDefault();
+        setErr('');
+        setIsLoading(true);
+        try {
+          if (isReg) {
+            await createUserWithEmailAndPassword(auth, email, pwd);
+          } else {
+            await signInWithEmailAndPassword(auth, email, pwd);
+          }
+        } catch (error) {
+          setErr(error.message);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex items-center justify-center p-6 bg-slate-900 absolute inset-0 z-[1000]">
+          <form onSubmit={handleAuth} className="w-full max-w-sm bg-slate-800 p-8 rounded-[2.5rem] shadow-2xl space-y-6">
+            <div className="text-center mb-8">
+              <div className="w-20 h-20 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.2)]">
+                <Users size={32} />
+              </div>
+              <h2 className="text-2xl font-black text-white">{isReg ? 'Device Registration' : 'Account Link Login'}</h2>
+              <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mt-2">Global Secure Sync</p>
+            </div>
+            {err && <div className="text-[10px] font-black uppercase text-rose-400 bg-rose-500/10 p-4 rounded-xl border border-rose-500/30">{err}</div>}
+            <div className="space-y-4">
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email Address" className="w-full bg-slate-900/50 text-white p-5 rounded-2xl border border-slate-700 font-bold outline-none focus:border-emerald-500 transition-colors" required />
+              <input type="password" value={pwd} onChange={e => setPwd(e.target.value)} placeholder="Password (6+ chars)" className="w-full bg-slate-900/50 text-white p-5 rounded-2xl border border-slate-700 font-bold outline-none focus:border-emerald-500 transition-colors" required />
+              <button type="submit" disabled={isLoading} className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 p-5 rounded-2xl font-black uppercase text-xs tracking-widest transition-colors shadow-[0_0_20px_rgba(16,185,129,0.3)]">
+                {isLoading ? 'Connecting...' : (isReg ? 'Create Account & Sync' : 'Login & Sync')}
+              </button>
+            </div>
+            <p className="text-center text-[10px] font-bold text-slate-400 mt-6 cursor-pointer uppercase tracking-wider hover:text-white transition-colors" onClick={() => setIsReg(!isReg)}>
+              {isReg ? 'Already Registered? Tap to Login' : 'Need to link this device? Register'}
+            </p>
+          </form>
+        </div>
+      );
+    }
+
     function App() {
       const [user, setUser] = useState(null);
       const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -260,15 +310,14 @@
         const initAuth = async () => {
           try {
             await setPersistence(auth, browserLocalPersistence);
-            await signInAnonymously(auth);
-          } catch (err) { console.error("Auth error:", err); }
+          } catch (err) { console.error("Auth init warning:", err); }
         };
         initAuth();
         return onAuthStateChanged(auth, (u) => { 
-          if (u) {
+          if (u && !u.isAnonymous) {
             setUser(u);
           } else {
-            setUser({ uid: 'lavender_local_user_v1' });
+            setUser(null);
           }
           setLoading(false); 
         });
@@ -349,19 +398,15 @@
           updatedAt: serverTimestamp()
         };
 
-        try {
-          if (editingItem) {
-            await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'transactions', editingItem.id), data);
-            showToast("Transaction Updated!");
-          } else {
-            await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'), { ...data, createdAt: serverTimestamp() });
-            showToast("Transaction Added!");
-          }
-          setShowAddModal(false);
-          setEditingItem(null);
-        } catch (err) {
-          showToast("Firebase Error: " + err.message, "error", 10000);
+        if (editingItem) {
+          updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'transactions', editingItem.id), data).catch(err => showToast("Firebase Error: " + err.message, "error", 10000));
+          showToast("Transaction Updated!");
+        } else {
+          addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'), { ...data, createdAt: serverTimestamp() }).catch(err => showToast("Firebase Error: " + err.message, "error", 10000));
+          showToast("Transaction Added!");
         }
+        setShowAddModal(false);
+        setEditingItem(null);
       };
 
       const handleMagicFill = async () => {
@@ -482,6 +527,8 @@
         </div>
       );
 
+      if (!user) return <LoginScreen />;
+
       return (
         <div className="min-h-screen bg-slate-50 text-slate-900 pb-28 font-sans max-w-md mx-auto shadow-2xl relative overflow-x-hidden">
 
@@ -597,7 +644,10 @@
                       <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Saving Strategy (%)</label>
                       <input name="savingsPercent" type="number" value={settings?.savingsPercent || 30} onChange={(e) => setSettings({...settings, savingsPercent: e.target.value})} className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-black text-lg focus:ring-2 ring-purple-200 transition-all" />
                     </div>
-                    <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black shadow-xl uppercase tracking-widest text-[10px] active:scale-95 transition-transform">Save Configuration</button>
+                    <div className="pt-2 flex flex-col gap-3">
+                      <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black shadow-xl uppercase tracking-widest text-[10px] active:scale-95 transition-transform">Save Configuration</button>
+                      <button type="button" onClick={() => signOut(auth)} className="w-full bg-rose-50 hover:bg-rose-100 text-rose-600 p-5 rounded-2xl font-black shadow-sm uppercase tracking-widest text-[10px] active:scale-95 transition-transform border border-rose-200">Disconnect Account</button>
+                    </div>
                   </form>
                 </div>
               </section>
@@ -785,16 +835,14 @@
                 <form onSubmit={async (e) => {
                   e.preventDefault(); if (!user) return;
                   const fd = new FormData(e.target);
-                  try {
-                    await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'commitments'), {
-                      name: fd.get('name') || 'Unknown Bill', amount: parseFloat(fd.get('amount')) || 0,
-                      currency: fd.get('currency'), category: fd.get('category'), createdAt: serverTimestamp()
-                    }); 
-                    showToast("Bill Added"); 
-                    setShowCommitmentModal(false);
-                  } catch (err) {
-                    showToast("Firebase Error: " + err.message, "error", 10000);
-                  }
+                  
+                  addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'commitments'), {
+                    name: fd.get('name') || 'Unknown Bill', amount: parseFloat(fd.get('amount')) || 0,
+                    currency: fd.get('currency'), category: fd.get('category'), createdAt: serverTimestamp()
+                  }).catch(err => showToast("Firebase Error: " + err.message, "error", 10000));
+                  
+                  showToast("Bill Added"); 
+                  setShowCommitmentModal(false);
                 }} className="space-y-4">
                   <input name="name" placeholder="Bill Name (e.g. Rent)" className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-bold" required />
                   <div className="space-y-2">
@@ -834,16 +882,14 @@
                 <form onSubmit={async (e) => {
                   e.preventDefault(); if (!user) return;
                   const fd = new FormData(e.target);
-                  try {
-                    await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'debts'), {
-                      name: fd.get('name'), amount: parseFloat(fd.get('amount')) || 0,
-                      currency: fd.get('currency'), type: fd.get('accountType'), createdAt: serverTimestamp()
-                    }); 
-                    showToast("Account Added"); 
-                    setShowDebtModal(false);
-                  } catch (err) {
-                    showToast("Firebase Error: " + err.message, "error", 10000);
-                  }
+                  
+                  addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'debts'), {
+                    name: fd.get('name'), amount: parseFloat(fd.get('amount')) || 0,
+                    currency: fd.get('currency'), type: fd.get('accountType'), createdAt: serverTimestamp()
+                  }).catch(err => showToast("Firebase Error: " + err.message, "error", 10000));
+                  
+                  showToast("Account Added"); 
+                  setShowDebtModal(false);
                 }} className="space-y-4">
                   <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full">
                     <label className="flex-1 cursor-pointer">
