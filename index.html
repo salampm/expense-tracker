@@ -3,425 +3,128 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Lavender — Structured Finance Portfolio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lavender Expense Tracker</title>
 
-  <!-- External SEO & UI Meta -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#f8fafc">
-
-  <!-- Premium Typography -->
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
-
-  <!-- Core Component Libraries (UMD / Standalone) -->
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/htm/dist/htm.standalone.js"></script>
 
-  <!-- Firebase Legacy (v8) for maximum local compatibility (file:// protocol support) -->
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="css/style.css">
 
-  <style>
-    :root {
-      --app-bg: #f8fafc;
-      --accent: #7c3aed;
-      --text-primary: #0f172a;
-      --text-secondary: #64748b;
-      --glass-bg: rgba(255, 255, 255, 0.85);
+  <!-- Import Maps for React, Firebase, and Icons -->
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js",
+        "lucide-react": "https://esm.sh/lucide-react@0.344.0"
+      }
     }
+  </script>
 
-    body {
-      margin: 0;
-      padding: 0;
-      -webkit-tap-highlight-color: transparent;
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background-color: var(--app-bg);
-      color: var(--text-primary);
-      overscroll-behavior-y: contain;
-    }
-
-    h1, h2, h3, .font-heading {
-      font-family: 'Outfit', sans-serif;
-    }
-
-    /* Layout & Utilities */
-    .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
-    .no-scrollbar::-webkit-scrollbar { display: none; }
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-    .glass-morphism { background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
-
-    /* Animations */
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    .animate-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-    .active-scale:active { transform: scale(0.95); }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .animate-spin { animation: spin 1s linear infinite; }
-
-    #root { min-height: 100vh; }
-    
-    .error-card {
-      background: #fff1f2;
-      border: 2px solid #fda4af;
-      padding: 1.5rem;
-      border-radius: 1rem;
-      color: #9f1239;
-      max-width: 300px;
-      text-align: center;
-      margin: 20px;
-    }
-  </style>
+  <!-- Babel for parsing JSX in the browser -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 
 <body class="bg-slate-50">
-  <!-- React Mount Point -->
-  <div id="root">
-    <!-- Initial Loader with Diagnostic Message -->
-    <div class="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white p-6">
-      <div id="loader-spinner" class="w-16 h-16 border-4 border-purple-500/20 border-t-purple-500 rounded-full animate-spin"></div>
-      <p id="loader-text" class="mt-8 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Connecting Portfolio</p>
-      
-      <!-- Hidden Emergency Message (Shows only if it hangs) -->
-      <div id="emergency-notice" class="hidden mt-12 space-y-4 text-center">
-         <div class="p-4 bg-white/5 border border-white/10 rounded-2xl animate-pulse">
-            <p class="text-rose-400 text-xs font-bold uppercase tracking-widest">Network Restriction Detected</p>
-            <p class="text-slate-400 text-[10px] mt-2 max-w-[250px]">The application is struggling to reach the database or core libraries. Check your internet or try another browser.</p>
-         </div>
-         <button onclick="location.reload()" class="px-6 py-3 bg-white text-slate-900 rounded-full font-black text-[10px] uppercase tracking-widest active-scale">Retry Sync</button>
-      </div>
-    </div>
-  </div>
 
-  <script>
-    // ==========================================
-    // DIAGNOSTIC STARTUP
-    // ==========================================
-    
-    // Show emergency notice after 8 seconds of circling
-    setTimeout(() => {
-      const notice = document.getElementById('emergency-notice');
-      if (notice) notice.classList.remove('hidden');
-    }, 8000);
+  <!-- React will mount here -->
+  <div id="root"></div>
 
-    // Global Error Catcher to identify why it's not opening
-    window.onerror = function(msg, url, lineNo, columnNo, error) {
-      console.error("System Error caught:", msg);
-      const splashMsg = document.getElementById('loader-text');
-      if (splashMsg) splashMsg.innerText = "System Failure: " + msg;
-      return false;
-    };
+  <!-- Config: Firebase keys, Gemini key, categories, AI engine, utilities -->
+  <!-- This is a REGULAR script (not module), so it works on file:// -->
+  <script src="js/config.js"></script>
 
-    // Library verification
-    const checkLibs = () => {
-      const missing = [];
-      if (typeof React === 'undefined') missing.push('React');
-      if (typeof ReactDOM === 'undefined') missing.push('ReactDOM');
-      if (typeof firebase === 'undefined') missing.push('Firebase');
-      if (typeof htm === 'undefined') missing.push('HTM');
-      return missing;
-    };
+  <!-- Main Application Code (JSX must stay inline for Babel on file://) -->
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useMemo, useRef } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { initializeApp, getApps, getApp } from 'firebase/app';
+    import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, deleteDoc, serverTimestamp, updateDoc, writeBatch, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
+    import { getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+    import { Wallet, Plus, TrendingUp, GraduationCap, Users, Loader2, Trash2, X, Landmark, PiggyBank, Target, Activity, Sparkles, Coins, CalendarCheck, UploadCloud, Wifi, WifiOff, Database, User as UserIcon, Edit3, FileCode, LayoutDashboard, History, LayoutList, ShoppingCart, Car, Coffee, Smartphone as PhoneIcon, ChevronRight, CheckCircle2, Banknote, BrainCircuit, AlertTriangle, RefreshCw, FileText, Search } from 'lucide-react';
 
     // ==========================================
-    // INITIALIZATION & CONFIG
+    // CONFIG & UTILITIES — loaded from js/config.js
     // ==========================================
-    
-    const libsMissing = checkLibs();
-    if (libsMissing.length > 0) {
-      document.getElementById('root').innerHTML = `
-        <div class="h-screen w-full flex flex-col items-center justify-center bg-slate-900">
-          <div class="error-card">
-            <h3 class="font-bold">Resource Blocked</h3>
-            <p class="text-xs mt-2">Could not load: ${libsMissing.join(', ')}. This usually happens if your firewall blocks UNPKG or GSTatic.</p>
-            <button onclick="location.reload()" class="mt-4 px-4 py-2 bg-rose-500 text-white rounded-lg text-xs font-bold">Try Refresh</button>
-          </div>
-        </div>
-      `;
-      throw new Error("Missing libraries: " + libsMissing.join(', '));
-    }
+    const firebaseConfig = window.LAVENDER_FIREBASE_CONFIG;
+    const appId = window.LAVENDER_APP_ID;
+    const apiKey = window.LAVENDER_GEMINI_KEY;
+    const callGemini = window.callGemini;
+    const CATEGORIES = window.LAVENDER_CATEGORIES;
+    const parseDate = window.lavenderParseDate;
+    const getLocalYMD = window.lavenderGetLocalYMD;
+    const getMonthKey = window.lavenderGetMonthKey;
+    const isIncome = window.lavenderIsIncome;
 
-    const { useState, useEffect, useMemo, useRef } = React;
-    const html = htm.bind(React.createElement);
+    const ICON_MAP = { Coffee, ShoppingCart, Car, GraduationCap, Landmark, Users, PiggyBank, PhoneIcon, Plus, Banknote };
 
-    const appId = 'lavish-lavender-decision-v4';
-    const firebaseConfig = {
-      apiKey: "AIzaSyCamHOZdnXdKaKg_9rqI3LdEI7srQKLiGM",
-      authDomain: "expensetracker-2fb92.firebaseapp.com",
-      projectId: "expensetracker-2fb92",
-      storageBucket: "expensetracker-2fb92.firebasestorage.app",
-      messagingSenderId: "261484355674",
-      appId: "1:261484355674:web:6f322df6f5a4c83080f863"
-    };
-
-    // Initialize Firebase
-    try {
-      if (!firebase.apps.length) {
-        firebase.initializeApp(firebaseConfig);
+    let auth, db;
+    if (firebaseConfig.apiKey) {
+      const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      try {
+        db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+      } catch (e) {
+        db = getFirestore(app);
       }
-    } catch(e) {
-      alert("Firebase Init Error: " + e.message);
     }
-    
-    const auth = firebase.auth();
-    const db = firebase.firestore();
 
-    // Enable persistence with silence on restricted protocols
-    db.enablePersistence({ synchronizeTabs: true }).catch(err => {
-      console.warn("Persistence declined:", err.code);
-    });
-
-    // ==========================================
-    // CONSTANTS & HELPERS
-    // ==========================================
-    const CATEGORIES = [
-      { id: 'food', name: 'Food & Dining', icon: 'Coffee' },
-      { id: 'groceries', name: 'Groceries / Hawwa Mart', icon: 'ShoppingCart' },
-      { id: 'fuel', name: 'Fuel / Auto', icon: 'Car' },
-      { id: 'shopping', name: 'Shopping', icon: 'ShoppingCart' },
-      { id: 'education', name: 'Education (JSI School)', icon: 'GraduationCap' },
-      { id: 'insurance', name: 'Insurance (TALIC)', icon: 'Landmark' },
-      { id: 'transfer_out', name: 'Transfers Out', icon: 'Users' },
-      { id: 'transfer_in', name: 'Transfer In / Salary', icon: 'PiggyBank', isIncome: true },
-      { id: 'utilities', name: 'Utilities / Recharge', icon: 'Smartphone' },
-      { id: 'misc', name: 'Miscellaneous', icon: 'Plus' }
-    ];
-
-    const Icon = ({ name, size = 24, className = "", strokeWidth = 2 }) => {
-      const iconRef = useRef(null);
+    function useExchangeRate() {
+      const [rates, setRates] = useState({ INR: 22.25, USD: 0.27, AED: 0.98, PKR: 75, BDT: 30, QAR: 0.97, EUR: 0.25, GBP: 0.21, KWD: 0.08 });
       useEffect(() => {
-        if (iconRef.current && window.lucide) {
-          const iconName = name.replace(/([A-Z])/g, "-$1").toLowerCase().replace(/^-/, "");
-          const icon = lucide.icons[iconName] || lucide.icons["circle"];
-          if (icon) {
-            iconRef.current.innerHTML = icon.toSvg({ width: size, height: size, "stroke-width": strokeWidth, class: className });
-          }
-        }
-      }, [name, size, className, strokeWidth]);
-      return html`<span ref=${iconRef} className="inline-flex items-center justify-center"></span>`;
-    };
-
-    const parseDate = d => {
-      if (!d) return new Date();
-      if (d.seconds) return new Date(d.seconds * 1000);
-      if (d.toDate && typeof d.toDate === 'function') return d.toDate();
-      const parsed = new Date(d);
-      return isNaN(parsed.getTime()) ? new Date() : parsed;
-    };
-
-    const getLocalYMD = date => {
-      const d = new Date(date);
-      const offset = d.getTimezoneOffset();
-      const localDate = new Date(d.getTime() - (offset * 60 * 1000));
-      return localDate.toISOString().split('T')[0];
-    };
-
-    const getMonthKey = (dateObj = new Date()) => {
-      const d = parseDate(dateObj);
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    };
-
-    const isIncome = t => t.type === 'income' || t.category === 'Transfer In / Salary';
-
-    // ==========================================
-    // COMPONENTS
-    // ==========================================
-
-    function DashboardTab({ stats, formatMoney, settings }) {
-      return html`
-        <div className="space-y-6 animate-in">
-          <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white space-y-8 shadow-2xl relative overflow-hidden">
-             <div className="absolute top-0 right-0 w-40 h-40 bg-purple-500/20 rounded-full -mr-20 -mt-20 blur-3xl"></div>
-             <div className="space-y-1 relative z-10">
-                <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.2em]">Remaining Today</p>
-                <h2 className=${`text-5xl font-black font-heading tracking-tighter leading-none ${stats.leftForToday < 0 ? 'text-rose-400' : 'text-white'}`}>
-                  ${formatMoney(stats.leftForToday)}
-                </h2>
-             </div>
-             <div className="grid grid-cols-2 gap-3 relative z-10">
-                <div className="bg-white/5 p-4 rounded-3xl border border-white/10 backdrop-blur-md">
-                  <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Daily Limit</p>
-                  <p className="text-lg font-black mt-1.5 text-white">${formatMoney(stats.dailyAllowance)}</p>
-                </div>
-                <div className="bg-white/5 p-4 rounded-3xl border border-white/10 backdrop-blur-md">
-                  <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Saving (${settings.savingsPercent || 30}%)</p>
-                  <p className="text-lg font-black mt-1.5 text-emerald-400">${formatMoney(stats.lockedSavings)}</p>
-                </div>
-             </div>
-          </div>
-          <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex items-center justify-between">
-             <div className="flex items-center gap-4">
-                <div className=${`p-4 rounded-2xl ${stats.health === 'green' ? 'bg-emerald-50 text-emerald-600' : stats.health === 'yellow' ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'}`}>
-                    <${Icon} name="Activity" size="24" />
-                </div>
-                <div>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Spent Today</p>
-                  <p className="text-2xl font-black text-slate-800 font-heading tracking-tight">${formatMoney(stats.todaySpendSAR)}</p>
-                </div>
-             </div>
-          </div>
-        </div>
-      `;
-    }
-
-    function LogsTab({ transactions, formatMoney, setEditingItem, setShowAddModal, setConfirmDelete }) {
-      const [searchTerm, setSearchTerm] = useState("");
-      const currentMonthKey = getMonthKey();
-      const filteredLogs = transactions
-        .filter(t => t.monthKey === currentMonthKey)
-        .filter(t => searchTerm === "" || (t.merchant || "").toLowerCase().includes(searchTerm.toLowerCase()) || (t.category || "").toLowerCase().includes(searchTerm.toLowerCase()));
-
-      return html`
-        <div className="space-y-4 pb-20 animate-in">
-          <h2 className="text-xl font-black px-1 flex justify-between items-center font-heading">
-            History <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-lg">Month: ${currentMonthKey}</span>
-          </h2>
-          <div className="relative">
-            <${Icon} name="Search" className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size="18"/>
-            <input 
-              type="text" placeholder="Search logs..." value=${searchTerm} onChange=${(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-white p-4 pl-12 rounded-2xl border border-slate-200 outline-none font-bold text-sm shadow-sm focus:border-indigo-400 transition-all font-heading"
-            />
-          </div>
-          <div className="space-y-3">
-            ${filteredLogs.map(t => {
-              const cat = CATEGORIES.find(c => c.name === t.category);
-              const isInc = isIncome(t);
-              return html`
-                <div key=${t.id} className="bg-white p-5 rounded-[2rem] flex flex-col gap-4 border border-slate-200 shadow-sm transition-all hover:border-slate-300">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className=${`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ${isInc ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-600'}`}>
-                        <${Icon} name=${cat?.icon || 'Plus'} size="20"/>
-                      </div>
-                      <div className="overflow-hidden">
-                        <p className="font-bold text-base text-slate-800 leading-tight truncate w-32 font-heading">${t.merchant || 'Untitled'}</p>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">${t.category}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className=${`font-black text-lg font-heading ${isInc ? 'text-emerald-600' : 'text-slate-900'}`}>${isInc ? '+' : '-'}${t.amount}</p>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase">${t.currency}</p>
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-2 pt-3 border-t border-slate-50">
-                    <button onClick=${() => { setEditingItem(t); setShowAddModal(true); }} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-[10px] uppercase tracking-widest active-scale transition-all hover:bg-white"><${Icon} name="Edit3" size="14"/> Edit</button>
-                    <button onClick=${() => setConfirmDelete({ col: 'transactions', id: t.id, title: 'Transaction' })} className="flex items-center gap-1.5 px-4 py-2 bg-rose-50 text-rose-600 rounded-xl font-black text-[10px] uppercase tracking-widest active-scale transition-all hover:bg-white"><${Icon} name="Trash2" size="14"/> Delete</button>
-                  </div>
-                </div>
-              `;
-            })}
-          </div>
-        </div>
-      `;
-    }
-
-    // ==========================================
-    // MAIN APP
-    // ==========================================
-    function App() {
-      const [user, setUser] = useState(null);
-      const [loading, setLoading] = useState(true);
-      const [isOnline, setIsOnline] = useState(navigator.onLine);
-      
-      const [activeTab, setActiveTab] = useState('dashboard');
-      const [currency, setCurrency] = useState('SAR'); 
-      const [transactions, setTransactions] = useState([]);
-      const [debts, setDebts] = useState([]);
-      const [commitments, setCommitments] = useState([]);
-      const [settings, setSettings] = useState({ salary: 0, savingsPercent: 30 });
-      const [exchangeRate, setExchangeRate] = useState(22.25);
-      
-      // UI State
-      const [showAddModal, setShowAddModal] = useState(false);
-      const [showDebtModal, setShowDebtModal] = useState(false);
-      const [showCommitmentModal, setShowCommitmentModal] = useState(false);
-      const [editingItem, setEditingItem] = useState(null);
-      const [confirmDelete, setConfirmDelete] = useState(null);
-      const [toast, setToast] = useState(null);
-      const toastTimer = useRef(null);
-
-      const showToast = (message, type = 'success') => {
-        setToast({ message, type });
-        if (toastTimer.current) clearTimeout(toastTimer.current);
-        toastTimer.current = setTimeout(() => setToast(null), 3000);
-      };
-
-      // Lifecycle
-      useEffect(() => {
-        console.log("App Component Init");
-        const h1 = () => setIsOnline(true); const h2 = () => setIsOnline(false);
-        window.addEventListener('online', h1); window.addEventListener('offline', h2);
-        
-        fetch('https://open.er-api.com/v6/latest/SAR')
-          .then(res => res.json())
-          .then(data => { if (data?.rates?.INR) setExchangeRate(data.rates.INR); });
-
-        const unsubAuth = auth.onAuthStateChanged(async u => {
-           console.log("Auth State Changed:", u ? "User Authenticated" : "No User");
-           if (!u) {
-             try { 
-               console.log("Attempting Anonymous Sign-In...");
-               await auth.signInAnonymously(); 
-             } catch(e) { 
-               console.error("Auth Fail:", e.message); 
-               setLoading(false); // Surface error instead of circling
-             }
-           } else {
-             setUser(u);
-             setLoading(false);
-           }
-        });
-
-        return () => { window.removeEventListener('online', h1); window.removeEventListener('offline', h2); unsubAuth(); };
+        const fetchRates = () => window.fetchAllRates().then(setRates).catch(() => {});
+        fetchRates();
+        const interval = setInterval(fetchRates, 30 * 60 * 1000);
+        return () => clearInterval(interval);
       }, []);
+      return rates;
+    }
 
-      useEffect(() => {
-        if (!user) return;
-        const pathBase = `artifacts/${appId}/users/${user.uid}`;
-        
-        const unsubTrans = db.collection(`${pathBase}/transactions`).orderBy('date', 'desc').onSnapshot(s => 
-          setTransactions(s.docs.map(d => ({ id: d.id, ...d.data() })))
-        );
-        const unsubDebts = db.collection(`${pathBase}/debts`).onSnapshot(s => 
-          setDebts(s.docs.map(d => ({ id: d.id, ...d.data() })))
-        );
-        const unsubCommit = db.collection(`${pathBase}/commitments`).onSnapshot(s => 
-          setCommitments(s.docs.map(d => ({ id: d.id, ...d.data() })))
-        );
-        const unsubSettings = db.doc(`${pathBase}/settings/config`).onSnapshot(d => { if (d.exists()) setSettings(d.data()); });
-        
-        return () => { unsubTrans(); unsubDebts(); unsubCommit(); unsubSettings(); };
-      }, [user]);
-
-      const stats = useMemo(() => {
+    function useStats(transactions, commitments, debts, settings, rates) {
+      return useMemo(() => {
         const currentMonthKey = getMonthKey();
         const todayStr = new Date().toDateString();
         const lastDay = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
-        const toSAR = (amount, curr) => curr === 'SAR' ? parseFloat(amount) : parseFloat(amount) / exchangeRate;
         
+        const toSAR = (amount, currency) => {
+          const num = window.lavenderSafeFloat(amount);
+          if (!currency || currency === 'SAR') return num;
+          const rate = rates[currency];
+          return rate ? num / rate : num / 22.25; // fallback
+        };
+
+        const fromSAR = (amountSAR, currency) => {
+          const num = window.lavenderSafeFloat(amountSAR);
+          if (!currency || currency === 'SAR') return num;
+          const rate = rates[currency];
+          return rate ? num * rate : num * 22.25;
+        };
+
         let incSAR = 0, expSAR = 0, todaySpendSAR = 0;
         const categoryTotals = {};
 
         transactions.forEach(t => {
           if (t.monthKey !== currentMonthKey) return;
           const valSAR = toSAR(t.amount, t.currency);
-          if (isIncome(t)) incSAR += valSAR;
-          else {
+
+          if (isIncome(t)) {
+            incSAR += valSAR;
+          } else {
             expSAR += valSAR;
             if (parseDate(t.date).toDateString() === todayStr) todaySpendSAR += valSAR;
             categoryTotals[t.category] = (categoryTotals[t.category] || 0) + valSAR;
           }
         });
 
-        const baseIncome = (parseFloat(settings.salary) || 0) > 0 ? parseFloat(settings.salary) : incSAR;
-        const lockedSavings = baseIncome * ((parseFloat(settings.savingsPercent) || 30) / 100);
+        const safeSalary = window.lavenderSafeFloat(settings.salary);
+        const baseIncome = safeSalary > 0 ? toSAR(safeSalary, settings.salaryCurrency || 'SAR') : incSAR;
+        const savingsPercent = window.lavenderSafeFloat(settings.savingsPercent) || 30;
+        const lockedSavings = baseIncome * (savingsPercent / 100);
 
         let unpaidCommitmentsSAR = 0;
         const commitmentList = commitments.map(c => {
@@ -429,237 +132,1017 @@
           const paidAmtSAR = transactions
             .filter(t => t.commitmentId === c.id && t.monthKey === currentMonthKey)
             .reduce((sum, t) => sum + toSAR(t.amount, t.currency), 0);
+
           const remaining = Math.max(0, amtSAR - paidAmtSAR);
           unpaidCommitmentsSAR += remaining;
-          return { ...c, isPaid: paidAmtSAR >= amtSAR, remainingSAR: remaining };
+          return { ...c, isPaid: paidAmtSAR >= (amtSAR * 0.99), remainingSAR: remaining };
         });
 
-        const pool = baseIncome - (lockedSavings + commitments.reduce((sum, c) => sum + toSAR(c.amount, c.currency), 0));
-        const dailyAllowance = Math.max(0, pool / lastDay);
-        const leftToday = dailyAllowance - todaySpendSAR;
+        const fixedOutgoingsSAR = commitments.reduce((sum, c) => sum + toSAR(c.amount, c.currency), 0);
+        const monthlySpendingPool = Math.max(0, baseIncome - (lockedSavings + fixedOutgoingsSAR));
+        const dailyAllowance = monthlySpendingPool / lastDay;
+        const leftForToday = dailyAllowance - todaySpendSAR;
 
-        const realtimeDebts = debts.map(acc => {
-          let balance = toSAR(acc.amount, acc.currency); 
+        let totalWealthSAR = 0;
+        const realtimeDebts = debts.map(account => {
+          let balance = toSAR(account.amount, account.currency);
           transactions.forEach(t => {
-            if (t.accountId === acc.id) {
-              const v = toSAR(t.amount, t.currency);
-              if (acc.type === 'debt') balance += isIncome(t) ? -v : v;
-              else balance += isIncome(t) ? v : -v;
+            if (t.accountId === account.id) {
+              const valSAR = toSAR(t.amount, t.currency);
+              if (account.type === 'debt') {
+                balance += isIncome(t) ? -valSAR : valSAR;
+              } else {
+                balance += isIncome(t) ? valSAR : -valSAR;
+              }
             }
           });
-          return { ...acc, realtimeBalanceSAR: balance };
+          totalWealthSAR += (account.type === 'debt' ? -balance : balance);
+          return { 
+            ...account, 
+            realtimeBalanceSAR: balance,
+            realtimeBalanceOriginal: fromSAR(balance, account.currency)
+          };
         });
 
-        return { 
-          leftForToday: leftToday, dailyAllowance, todaySpendSAR,
-          incSAR: baseIncome, expSAR, lockedSavings, 
+        return {
+          leftForToday, dailyAllowance, todaySpendSAR,
+          incSAR: baseIncome, expSAR, lockedSavings,
           unpaidCommitmentsSAR, commitmentList, realtimeDebts, categoryTotals,
-          health: leftToday < 0 ? "red" : leftToday < (dailyAllowance * 0.2) ? "yellow" : "green"
+          totalWealthSAR,
+          health: leftForToday < 0 ? "red" : leftForToday < (dailyAllowance * 0.2) ? "yellow" : "green"
         };
-      }, [transactions, commitments, debts, settings, exchangeRate]);
+      }, [transactions, commitments, debts, settings, rates]);
+    }
 
-      const formatMoney = amountSAR => {
-        const val = currency === 'SAR' ? amountSAR : amountSAR * exchangeRate;
-        const sym = currency === 'SAR' ? 'SR' : '₹';
-        return `${sym} ${Math.round(val).toLocaleString()}`;
+    function App() {
+      const [user, setUser] = useState(null);
+      const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+      const [transactions, setTransactions] = useState([]);
+      const [debts, setDebts] = useState([]);
+      const [commitments, setCommitments] = useState([]);
+      const [settings, setSettings] = useState({ salary: '', savingsPercent: 30 });
+
+      const rates = useExchangeRate();
+      const stats = useStats(transactions, commitments, debts, settings, rates);
+
+      const [primaryCurrency, setPrimaryCurrency] = useState('SAR');
+      const [secondaryCurrency, setSecondaryCurrency] = useState('INR');
+      
+      const [loading, setLoading] = useState(true);
+      const [isProcessing, setIsProcessing] = useState(false);
+      const [activeTab, setActiveTab] = useState('dashboard');
+
+      const [showAddModal, setShowAddModal] = useState(false);
+      const [editingItem, setEditingItem] = useState(null);
+      const [showSmartSync, setShowSmartSync] = useState(false);
+      const [showCommitmentModal, setShowCommitmentModal] = useState(false);
+      const [showDebtModal, setShowDebtModal] = useState(false);
+      const [confirmDelete, setConfirmDelete] = useState(null);
+      const [syncResults, setSyncResults] = useState([]);
+
+      const [magicSms, setMagicSms] = useState("");
+      const [isMagicLoading, setIsMagicLoading] = useState(false);
+
+      const [toast, setToast] = useState(null);
+      const toastTimer = useRef(null);
+
+      useEffect(() => {
+        return () => {
+          if (toastTimer.current) clearTimeout(toastTimer.current);
+        };
+      }, []);
+
+      const formatMoney = (amountSAR, overrideCurrency = null) => {
+        const curCode = overrideCurrency || primaryCurrency;
+        const num = window.lavenderSafeFloat(amountSAR);
+
+        let displayValue;
+        let symbol;
+
+        if (curCode === 'SAR') {
+          symbol = 'SR';
+          displayValue = num;
+        } else {
+          const rate = rates[curCode] || 1;
+          displayValue = num * rate;
+          symbol = (window.LAVENDER_CURRENCIES?.find(c => c.code === curCode)?.symbol) || curCode;
+        }
+
+        const sign = displayValue < 0 ? '-' : '';
+        const absFormatted = Math.abs(displayValue).toLocaleString(undefined, { maximumFractionDigits: 0 });
+        return `${sign}${symbol} ${absFormatted}`;
       };
 
-      const saveTransaction = async e => {
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        const amt = parseFloat(fd.get('amount'));
-        if (!amt) return showToast("Enter amount", "error");
-
-        const tData = {
-          amount: amt, 
-          currency: fd.get('currency'),
-          merchant: fd.get('merchant') || "Misc",
-          category: fd.get('category'),
-          type: fd.get('type'),
-          accountId: fd.get('accountId') || null,
-          commitmentId: fd.get('commitmentId') || null,
-          date: editingItem ? parseDate(editingItem.date) : new Date(fd.get('date')),
-          monthKey: getMonthKey(editingItem ? parseDate(editingItem.date) : new Date(fd.get('date'))),
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
-
-        try {
-          const path = `artifacts/${appId}/users/${user.uid}/transactions`;
-          if (editingItem) await db.collection(path).doc(editingItem.id).update(tData);
-          else await db.collection(path).add({ ...tData, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
-          showToast("Cloud Synced");
-        } catch (err) { showToast("Sync Error", "error"); }
-        setShowAddModal(false); setEditingItem(null);
+      const showToast = (message, type = 'success', duration = 4000) => {
+        setToast({ message, type });
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        toastTimer.current = setTimeout(() => setToast(null), duration);
       };
 
-      const dbDelete = async () => {
-        if (!confirmDelete) return;
+      useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+          window.removeEventListener('online', handleOnline);
+          window.removeEventListener('offline', handleOffline);
+        };
+      }, []);
+
+      useEffect(() => {
+        if (!firebaseConfig.apiKey) {
+          setLoading(false);
+          showToast("Firebase Config Missing. Check the code.", "error");
+          return;
+        }
+        const initAuth = async () => {
+          try {
+            await signInAnonymously(auth);
+          } catch (err) { console.error("Auth error:", err); }
+        };
+        initAuth();
+        return onAuthStateChanged(auth, (u) => { setUser(u); setLoading(false); });
+      }, []);
+
+      useEffect(() => {
+        const timeout = setTimeout(() => {
+          if (loading) {
+            setLoading(false);
+            showToast("Connection timeout. App loaded in offline mode.", "error", 6000);
+          }
+        }, 15000);
+        return () => clearTimeout(timeout);
+      }, [loading]);
+
+      useEffect(() => {
+        if (!user || !db) return;
+        const path = (col) => collection(db, 'artifacts', appId, 'users', user.uid, col);
+        const unsubTrans = onSnapshot(path('transactions'), (s) => setTransactions(s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => parseDate(b.date) - parseDate(a.date))));
+        const unsubDebts = onSnapshot(path('debts'), (s) => setDebts(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+        const unsubCommit = onSnapshot(path('commitments'), (s) => setCommitments(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+        const unsubSettings = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'config'), (d) => {
+          if (d.exists()) {
+            const data = d.data();
+            setSettings(data);
+            if (data.primaryCurrency) setPrimaryCurrency(data.primaryCurrency);
+            if (data.secondaryCurrency) setSecondaryCurrency(data.secondaryCurrency);
+          }
+        });
+        return () => { unsubTrans(); unsubDebts(); unsubCommit(); unsubSettings(); };
+      }, [user]);
+
+      const executeDelete = async () => {
+        if (!confirmDelete || !user || !db) return;
         try {
-          await db.doc(`artifacts/${appId}/users/${user.uid}/${confirmDelete.col}/${confirmDelete.id}`).delete();
-          showToast("Entry Erased");
-        } catch (e) { showToast("Delete failed", "error"); }
+          await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, confirmDelete.col, confirmDelete.id));
+          showToast(`${confirmDelete.title} Deleted`);
+        } catch (err) {
+          showToast("Delete failed (Offline or Error)", "error");
+        }
         setConfirmDelete(null);
       };
 
-      if (loading) return null;
+      const saveTransaction = async (e) => {
+        e.preventDefault();
+        if (!user || !db) return;
+        const formData = new FormData(e.target);
 
-      // Handle Authentication Error View
-      if (!user) {
-        return html`
-          <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900 text-white p-10 text-center">
-            <h1 className="text-2xl font-black text-rose-400">Connection Failed</h1>
-            <p className="text-slate-400 mt-4 text-sm font-medium">The application couldn't verify your account session. This is common on corporate networks or strictly private browsers.</p>
-            <button onClick=${() => location.reload()} className="mt-8 px-10 py-4 bg-white text-slate-900 rounded-full font-black text-xs uppercase tracking-widest">Force Reconnect</button>
-          </div>
-        `;
-      }
+        const rawAmount = parseFloat(formData.get('amount'));
+        if (!rawAmount || rawAmount <= 0) {
+          showToast("Enter a valid positive amount", "error");
+          return;
+        }
 
-      return html`
-        <div className="min-h-screen bg-slate-50 text-slate-900 pb-32 font-sans max-w-md mx-auto shadow-2xl relative overflow-x-hidden flex flex-col border-x border-slate-100">
-          
-          <header className="px-6 pt-10 pb-6 bg-white flex justify-between items-center sticky top-0 z-30 border-b border-slate-50 glass-morphism">
+        const merchantRaw = formData.get('merchant')?.trim();
+        const merchant = merchantRaw || "Unknown";
+        const selectedCurrency = formData.get('currency');
+
+        const data = {
+          amount: rawAmount,
+          currency: selectedCurrency,
+          baseAmountSAR: selectedCurrency === 'SAR' ? rawAmount : rawAmount / (rates[selectedCurrency] || 1),
+          merchant,
+          category: formData.get('category'),
+          type: formData.get('type'),
+          accountId: formData.get('accountId') || null,
+          commitmentId: formData.get('commitmentId') || null,
+          date: (() => {
+            const rawDate = formData.get('date');
+            const [y, m, d] = rawDate.split('-').map(Number);
+            return new Date(y, m - 1, d);
+          })(),
+          monthKey: (() => {
+            const rawDate = formData.get('date');
+            const [y, m, d] = rawDate.split('-').map(Number);
+            return getMonthKey(new Date(y, m - 1, d));
+          })(),
+          updatedAt: serverTimestamp()
+        };
+
+        try {
+          if (editingItem) {
+            await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'transactions', editingItem.id), data);
+            showToast("Transaction Updated!");
+          } else {
+            await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'), { ...data, createdAt: serverTimestamp() });
+            showToast("Transaction Added!");
+          }
+        } catch (err) {
+          showToast("Saved offline. Will sync when online.", "info");
+        }
+        setShowAddModal(false);
+        setEditingItem(null);
+      };
+
+      const handleMagicFill = async () => {
+        if (!apiKey) {
+          showToast("Gemini API key not configured", "error");
+          return;
+        }
+        if (!magicSms) return;
+        setIsMagicLoading(true);
+        try {
+          const prompt = `Extract transaction details from this text. Return ONLY a strict JSON object with these keys: 
+          - amount (number)
+          - merchant (string, guess the shop/person name)
+          - type ('income' or 'expense')
+          - category (string, MUST be one of: ${CATEGORIES.map(c => c.name).join(', ')})
+          Text: "${magicSms}"`;
+
+          const text = await callGemini(apiKey, prompt, true);
+          const data = JSON.parse(text.replace(/```json/gi, '').replace(/```/g, '').trim());
+
+          if (data.amount) document.querySelector('input[name="amount"]').value = data.amount;
+          if (data.merchant) document.querySelector('input[name="merchant"]').value = data.merchant;
+          if (data.type) {
+            const radio = document.querySelector(`input[name="type"][value="${data.type}"]`);
+            if (radio) radio.checked = true;
+          }
+          if (data.category) {
+            const select = document.querySelector('select[name="category"]');
+            if (select) select.value = data.category;
+          }
+
+          showToast("✨ Magic Fill Complete!");
+          setMagicSms("");
+        } catch (e) {
+          showToast("AI Error: " + e.message, "error", 6000);
+        } finally {
+          setIsMagicLoading(false);
+        }
+      };
+
+      const processSmartSync = async (inputData = null, isImage = false) => {
+        if (!isOnline) { showToast("Requires Internet", "error"); return; }
+        if (!apiKey) {
+          showToast("Gemini API key not configured", "error");
+          return;
+        }
+        setIsProcessing(true);
+
+        const fullPrompt = `You are a precise financial data extraction engine. Process EVERY SINGLE ROW from the provided bank statement. 
+        Return ONLY a strict JSON array. Format: [{"amount": 1500.50, "currency": "INR", "merchant": "Merchant", "type": "expense", "category": "Miscellaneous", "date": "2026-03-27"}]
+        RULES:
+        1. If "Debit" or "Withdrawal", type is "expense". If "Credit" or "Deposit", type is "income".
+        2. NEVER output "amount": 0. Skip blank rows.
+        3. Map Category strictly to: ${CATEGORIES.map(c => c.name).join(', ')}.
+        DATE: "YYYY-MM-DD". CURRENCY: "INR".
+        
+        Data to process:
+        ${isImage ? "Analyze the attached image." : inputData}`;
+
+        try {
+          const text = await callGemini(apiKey, fullPrompt, true, isImage ? inputData : null);
+          const extracted = JSON.parse(text.replace(/```json/gi, '').replace(/```/g, '').trim());
+          if (!Array.isArray(extracted)) throw new Error("AI returned invalid format");
+
+          const validExtractions = extracted.filter(item => parseFloat(item.amount) > 0 && item.merchant);
+          setSyncResults(validExtractions);
+          showToast(`AI extracted ${validExtractions.length} items successfully.`);
+        } catch (err) {
+          showToast("AI Error: " + err.message, "error", 6000);
+        } finally { setIsProcessing(false); }
+      };
+
+      const confirmSync = async () => {
+        if (!user || syncResults.length === 0) return;
+        setIsProcessing(true);
+        try {
+          let batch = writeBatch(db);
+          const transCol = collection(db, 'artifacts', appId, 'users', user.uid, 'transactions');
+          let count = 0;
+
+          for (const item of syncResults) {
+            const parsedDate = (() => {
+              if (!item.date) return new Date();
+              const [y, m, d] = item.date.split('-').map(Number);
+              return (y && m && d) ? new Date(y, m - 1, d) : new Date(item.date);
+            })();
+            const finalAmount = parseFloat(item.amount) || 0;
+
+            batch.set(doc(transCol), {
+              ...item,
+              amount: finalAmount,
+              baseAmountSAR: item.currency === 'SAR' ? finalAmount : finalAmount / (rates[item.currency] || 1),
+              date: isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
+              monthKey: getMonthKey(parsedDate),
+              createdAt: serverTimestamp()
+            });
+
+            count++;
+            if (count % 450 === 0) {
+              await batch.commit();
+              batch = writeBatch(db);
+            }
+          }
+          if (count % 450 !== 0) await batch.commit();
+
+          setSyncResults([]);
+          setShowSmartSync(false);
+          showToast("Imported perfectly to cloud");
+        } catch (error) {
+          showToast("Failed to save to cloud", "error");
+        } finally { setIsProcessing(false); }
+      };
+
+      if (loading) return (
+        <div className="h-screen flex flex-col items-center justify-center bg-slate-900 text-white">
+          <Loader2 className="animate-spin text-purple-500 mb-6" size={48} />
+          <p className="text-sm font-black uppercase tracking-widest text-slate-400">Loading Lavender...</p>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen bg-slate-50 text-slate-900 pb-28 font-sans max-w-md mx-auto shadow-2xl relative overflow-x-hidden">
+
+          {/* HEADER */}
+          <header className="px-6 pt-8 pb-4 bg-white flex justify-between items-center sticky top-0 z-30 border-b border-slate-100">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-lg active-scale"><${Icon} name="Wallet" size="20"/></div>
+              <div className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-white shadow-lg"><Wallet size={20} /></div>
               <div>
-                <h1 className="text-xl font-black font-heading tracking-tight">Lavender</h1>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                   <div className=${`w-1.5 h-1.5 rounded-full ${stats.health === 'green' ? 'bg-emerald-500' : stats.health === 'yellow' ? 'bg-amber-500' : 'bg-rose-500'}`}></div>
-                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">${stats.health === 'green' ? 'Stable' : stats.health === 'yellow' ? 'Warning' : 'Overspent'}</span>
+                <h1 className="text-xl font-black tracking-tighter leading-none">Lavender</h1>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <div className={`w-1.5 h-1.5 rounded-full ${stats.health === 'green' ? 'bg-emerald-500' : stats.health === 'yellow' ? 'bg-amber-500' : 'bg-rose-500'}`}></div>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                    {stats.health === 'green' ? 'Safe Status' : stats.health === 'yellow' ? 'Warning' : 'Over Budget'}
+                  </span>
                 </div>
               </div>
             </div>
             <div className="flex items-center gap-2">
-               <div className=${`p-2.5 rounded-xl ${isOnline ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}><${Icon} name=${isOnline ? "Wifi" : "WifiOff"} size="16"/></div>
-               <button onClick=${() => setCurrency(currency === 'SAR' ? 'INR' : 'SAR')} className="bg-slate-900 px-4 h-10 rounded-xl text-[10px] font-black text-white tracking-widest font-heading transition-all shadow-sm active-scale">${currency}</button>
+              <div className={`p-2 rounded-xl ${isOnline ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
+                {isOnline ? <Wifi size={16} /> : <WifiOff size={16} />}
+              </div>
+              <button onClick={() => setShowSmartSync(true)} className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center active:scale-90 transition-transform"><FileCode size={18} /></button>
+              <button 
+                onClick={() => {
+                  if (primaryCurrency === 'SAR') setPrimaryCurrency(secondaryCurrency);
+                  else if (primaryCurrency === secondaryCurrency) setPrimaryCurrency('SAR');
+                  else setPrimaryCurrency('SAR');
+                }} 
+                className="bg-slate-900 text-white px-3 h-10 rounded-xl text-[10px] font-black shadow-lg border border-slate-800 uppercase tracking-widest min-w-[50px]"
+              >
+                {primaryCurrency}
+              </button>
             </div>
           </header>
 
-          <main className="px-6 space-y-6 pt-6 flex-1">
-            ${activeTab === 'dashboard' && html`<${DashboardTab} stats=${stats} formatMoney=${formatMoney} settings=${settings} />`}
-            ${activeTab === 'logs' && html`<${LogsTab} transactions=${transactions} formatMoney=${formatMoney} setEditingItem=${setEditingItem} setShowAddModal=${setShowAddModal} setConfirmDelete=${setConfirmDelete} />`}
-            
-            ${activeTab === 'bills' && html`
-              <div className="space-y-6 pb-20 animate-in">
-                <div className="flex justify-between items-center px-1">
-                  <h2 className="text-xl font-black font-heading">Fixed Bills</h2>
-                  <button onClick=${() => setShowCommitmentModal(true)} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-black uppercase flex items-center gap-2 active-scale shadow-sm transition-all"><${Icon} name="Plus" size="16" /> Add</button>
-                </div>
-                <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white relative overflow-hidden">
-                   <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Unpaid Balance</p>
-                   <h3 className="text-4xl font-black mt-1 font-heading">${formatMoney(stats.unpaidCommitmentsSAR)}</h3>
-                </div>
-                <div className="space-y-3">
-                  ${stats.commitmentList.map(item => html`
-                    <div key=${item.id} className="bg-white p-5 rounded-[2rem] border border-slate-100 flex items-center justify-between shadow-sm">
-                      <div className="flex items-center gap-4">
-                        <div className="p-3 bg-slate-50 rounded-2xl text-slate-400"><${Icon} name="LayoutList" size="20" /></div>
-                        <div><p className="font-bold text-slate-800 font-heading leading-tight">${item.name}</p><p className="text-[10px] text-slate-400 font-black uppercase mt-1 tracking-widest">${item.amount} ${item.currency}</p></div>
-                      </div>
-                      <button onClick=${() => setConfirmDelete({ col: 'commitments', id: item.id, title: 'Bill' })} className="p-3 text-slate-200 hover:text-rose-500 active-scale"><${Icon} name="Trash2" size="16" /></button>
+          {/* TABS ENGINE */}
+          <main className="px-6 space-y-6 pt-6">
+            {activeTab === 'dashboard' && <DashboardTab stats={stats} formatMoney={formatMoney} isOnline={isOnline} settings={settings} showToast={showToast} apiKey={apiKey} callGemini={callGemini} secondaryCurrency={secondaryCurrency} />}
+            {activeTab === 'logs' && <LogsTab transactions={transactions} formatMoney={formatMoney} setEditingItem={setEditingItem} setShowAddModal={setShowAddModal} setConfirmDelete={setConfirmDelete} />}
+            {activeTab === 'bills' && <BillsTab stats={stats} formatMoney={formatMoney} setConfirmDelete={setConfirmDelete} setShowCommitmentModal={setShowCommitmentModal} />}
+            {activeTab === 'wealth' && <WealthTab stats={stats} formatMoney={formatMoney} setConfirmDelete={setConfirmDelete} setShowDebtModal={setShowDebtModal} />}
+            {activeTab === 'settings' && (
+              <section className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4">
+                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200">
+                  <h2 className="text-xl font-black flex items-center gap-2 mb-6"><UserIcon size={24} className="text-purple-600" /> Global Settings</h2>
+                  
+                  <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 mb-8">
+                    <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Live Exchange Rates (Base: SAR)</p>
+                    <div className="grid grid-cols-2 gap-2">
+                       {['INR', 'USD', 'PKR', 'BDT'].map(c => (
+                         <div key={c} className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                           <span className="text-[10px] font-black">{window.LAVENDER_CURRENCIES.find(curr => curr.code === c)?.flag} {c}</span>
+                           <span className="text-xs font-black text-indigo-600">{rates[c]?.toFixed(2)}</span>
+                         </div>
+                       ))}
                     </div>
-                  `)}
-                </div>
-              </div>
-            `}
+                  </div>
 
-            ${activeTab === 'wealth' && html`
-              <div className="space-y-6 pb-20 animate-in">
-                 <div className="flex justify-between items-center px-1">
-                   <h2 className="text-xl font-black font-heading">Vaults</h2>
-                   <button onClick=${() => setShowDebtModal(true)} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-black uppercase flex items-center gap-2 active-scale shadow-sm transition-all"><${Icon} name="Plus" size="16" /> Link</button>
-                 </div>
-                 <div className="space-y-3">
-                    ${stats.realtimeDebts.map(acc => html`
-                      <div key=${acc.id} className="bg-white p-5 rounded-[2rem] border border-slate-100 flex items-center justify-between shadow-sm">
-                        <div className="flex items-center gap-4">
-                          <div className="p-3 bg-slate-50 rounded-2xl text-slate-400"><${Icon} name=${acc.type === 'debt' ? 'CreditCard' : 'Landmark'} size="20" /></div>
-                          <div><p className="font-bold text-slate-800 font-heading leading-tight">${acc.name}</p><p className="text-sm font-black text-slate-900 mt-1 font-heading">${formatMoney(acc.realtimeBalanceSAR)}</p></div>
-                        </div>
-                        <button onClick=${() => setConfirmDelete({ col: 'debts', id: acc.id, title: 'Account' })} className="p-3 text-slate-200 hover:text-rose-500 active-scale"><${Icon} name="Trash2" size="16" /></button>
+                  <form 
+                    onSubmit={async (e) => {
+                      e.preventDefault(); if (!user) return;
+                      const fd = new FormData(e.target);
+                      const pCur = fd.get('primaryCurrency');
+                      const sCur = fd.get('secondaryCurrency');
+                      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'config'), {
+                        salary: parseFloat(fd.get('salary')) || 0, 
+                        savingsPercent: parseFloat(fd.get('savingsPercent')) || 30,
+                        primaryCurrency: pCur,
+                        secondaryCurrency: sCur,
+                        salaryCurrency: fd.get('salaryCurrency') || 'SAR'
+                      });
+                      setPrimaryCurrency(pCur);
+                      setSecondaryCurrency(sCur);
+                      showToast("Settings Updated ✓");
+                    }} 
+                    className="space-y-6"
+                  >
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Home Currency</label>
+                        <select name="primaryCurrency" defaultValue={primaryCurrency} className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none font-bold text-xs">
+                          {window.LAVENDER_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code}</option>)}
+                        </select>
                       </div>
-                    `)}
-                 </div>
-              </div>
-            `}
-
-            ${activeTab === 'settings' && html`
-              <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-8 animate-in">
-                 <h2 className="text-xl font-black font-heading">Profile</h2>
-                 <form onSubmit=${async e => {
-                    e.preventDefault();
-                    const fd = new FormData(e.target);
-                    await db.doc(`artifacts/${appId}/users/${user.uid}/settings/config`).set({
-                       salary: parseFloat(fd.get('salary')), savingsPercent: parseFloat(fd.get('savingsPercent'))
-                    }, { merge: true }); showToast("Profile Updated");
-                 }} className="space-y-6">
-                    <input name="salary" type="number" step="0.1" defaultValue=${settings.salary} className="w-full bg-slate-50 p-5 rounded-2xl font-black text-lg outline-none font-heading" placeholder="Salary (SAR)" />
-                    <input name="savingsPercent" type="number" defaultValue=${settings.savingsPercent} className="w-full bg-slate-50 p-5 rounded-2xl font-black text-lg outline-none font-heading" placeholder="Savings %" />
-                    <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg active-scale">Submit Update</button>
-                 </form>
-              </div>
-            `}
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Wealth Currency</label>
+                        <select name="secondaryCurrency" defaultValue={secondaryCurrency} className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none font-bold text-xs">
+                          {window.LAVENDER_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="col-span-2 space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Base Monthly Salary</label>
+                        <input name="salary" type="number" step="0.01" value={settings?.salary === 0 ? '' : (settings?.salary || '')} onChange={(e) => setSettings({...settings, salary: e.target.value})} className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-black text-lg focus:ring-2 ring-purple-200 transition-all" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Currency</label>
+                        <select name="salaryCurrency" value={settings?.salaryCurrency || 'SAR'} onChange={(e) => setSettings({...settings, salaryCurrency: e.target.value})} className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-bold text-sm focus:ring-2 ring-purple-200 transition-all">
+                          {window.LAVENDER_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.code}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Saving Strategy (%)</label>
+                      <input name="savingsPercent" type="number" value={settings?.savingsPercent || 30} onChange={(e) => setSettings({...settings, savingsPercent: e.target.value})} className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-black text-lg focus:ring-2 ring-purple-200 transition-all" />
+                    </div>
+                    <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black shadow-xl uppercase tracking-widest text-[10px] active:scale-95 transition-transform">Save Configuration</button>
+                  </form>
+                </div>
+              </section>
+            )}
           </main>
 
-          <footer className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white/95 backdrop-blur-xl border-t border-slate-100 px-8 py-5 flex justify-between items-center shadow-2xl z-40 pb-safe">
-            ${['dashboard', 'logs', 'bills', 'wealth', 'settings'].map(tab => html`
-              <button key=${tab} onClick=${() => setActiveTab(tab)} className=${`flex flex-col items-center gap-1.5 transition-all ${activeTab === tab ? 'text-purple-600 scale-110' : 'text-slate-300'}`}>
-                <${Icon} name=${tab === 'dashboard' ? 'LayoutDashboard' : tab === 'logs' ? 'History' : tab === 'bills' ? 'List' : tab === 'wealth' ? 'Target' : 'User'} size="22" strokeWidth=${activeTab === tab ? 2.5 : 2}/><span className="text-[9px] font-black uppercase">${tab}</span>
+          {/* FOOTER NAV */}
+          <footer className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-slate-200 px-6 py-4 flex justify-between items-center shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40">
+            {[
+              { id: 'dashboard', icon: LayoutDashboard, label: 'Home' },
+              { id: 'logs', icon: History, label: 'Logs' },
+              { id: 'bills', icon: LayoutList, label: 'Bills' },
+              { id: 'wealth', icon: Target, label: 'Wealth' },
+              { id: 'settings', icon: UserIcon, label: 'Profile' }
+            ].map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-1 ${activeTab === tab.id ? 'text-purple-600' : 'text-slate-400'}`}>
+                <tab.icon size={24} /><span className="text-[9px] font-black uppercase">{tab.label}</span>
               </button>
-            `)}
+            ))}
           </footer>
 
-          <button onClick=${() => setShowAddModal(true)} className="fixed bottom-24 left-1/2 translate-x-32 w-16 h-16 bg-slate-900 text-white rounded-full shadow-2xl flex items-center justify-center z-50 active-scale border-[4px] border-white ring-4 ring-slate-100"><${Icon} name="Plus" size="32" strokeWidth="3"/></button>
+          {/* FAB ADD */}
+          <button onClick={() => { setEditingItem(null); setShowAddModal(true); setMagicSms(""); }} className="fixed bottom-24 right-6 w-16 h-16 bg-slate-900 text-white rounded-full shadow-[0_10px_25px_rgba(0,0,0,0.3)] flex items-center justify-center z-50 active:scale-90 transition-transform border-[4px] border-white">
+            <Plus size={32} strokeWidth={3} />
+          </button>
 
-          ${showAddModal && html`
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-0 animate-in">
-              <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl overflow-y-auto no-scrollbar pb-12">
-                <h3 className="text-2xl font-black font-heading mb-8">${editingItem ? 'Edit Entry' : 'Log Entry'}</h3>
-                <form key=${editingItem?.id || 'new'} onSubmit=${saveTransaction} className="space-y-6">
-                  <div className="flex bg-slate-100 p-1.5 rounded-2xl">
-                    <label className="flex-1 cursor-pointer"><input type="radio" name="currency" value="SAR" className="hidden peer" defaultChecked=${editingItem ? editingItem.currency === 'SAR' : true} /><div className="text-center py-3.5 rounded-xl peer-checked:bg-slate-900 peer-checked:text-white font-black text-[10px] uppercase">SAR</div></label>
-                    <label className="flex-1 cursor-pointer"><input type="radio" name="currency" value="INR" className="hidden peer" defaultChecked=${editingItem?.currency === 'INR'} /><div className="text-center py-3.5 rounded-xl peer-checked:bg-slate-900 peer-checked:text-white font-black text-[10px] uppercase">INR</div></label>
+          {/* MODALS */}
+          {confirmDelete && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+              <div className="bg-white p-8 rounded-[2.5rem] max-w-xs w-full shadow-2xl transition-all">
+                <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mb-4"><AlertTriangle size={24} /></div>
+                <h3 className="text-xl font-black text-slate-900 mb-2">Delete {confirmDelete.title}?</h3>
+                <p className="text-sm font-medium text-slate-500 mb-8 leading-relaxed">This will permanently remove it from your cloud storage. You cannot undo this.</p>
+                <div className="flex gap-3">
+                  <button onClick={() => setConfirmDelete(null)} className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 rounded-2xl font-black text-slate-600 transition-colors uppercase tracking-widest text-[10px]">Cancel</button>
+                  <button onClick={executeDelete} className="flex-1 py-4 bg-rose-600 hover:bg-rose-700 rounded-2xl font-black text-white transition-colors uppercase tracking-widest text-[10px]">Delete</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showAddModal && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-white w-full max-w-sm rounded-t-[2.5rem] p-8 shadow-2xl animate-in slide-in-from-bottom duration-300 max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-2xl font-black">{editingItem ? 'Edit Entry' : 'Log Expense'}</h3>
+                  <button onClick={() => { setShowAddModal(false); setEditingItem(null); }} className="bg-slate-100 p-2 rounded-full"><X size={20} /></button>
+                </div>
+
+                {/* ✨ Feature 2: Magic SMS Fill UI */}
+                {!editingItem && (
+                  <div className="bg-purple-50 p-4 rounded-2xl mb-6 border border-purple-100">
+                    <label className="text-[10px] font-black uppercase text-purple-600 tracking-widest flex items-center gap-1 mb-3">
+                      <Sparkles size={14} /> ✨ Magic SMS Auto-fill
+                    </label>
+                    <div className="flex gap-2">
+                      <input value={magicSms} onChange={(e) => setMagicSms(e.target.value)} placeholder="Paste bank SMS or natural text..." className="flex-1 bg-white p-3 rounded-xl text-xs outline-none border border-purple-200 font-medium shadow-sm" />
+                      <button type="button" onClick={handleMagicFill} disabled={isMagicLoading || !magicSms} className="bg-purple-600 text-white px-4 rounded-xl font-bold text-xs disabled:opacity-50 transition-all shadow-md">
+                        {isMagicLoading ? <Loader2 className="animate-spin" size={16} /> : 'Fill'}
+                      </button>
+                    </div>
                   </div>
-                  <input name="amount" type="number" step="0.01" defaultValue=${editingItem?.amount} placeholder="0.00" className="w-full bg-slate-50 p-6 rounded-3xl font-black text-5xl text-center outline-none font-heading" autoFocus />
-                  <div className="grid grid-cols-1 gap-4">
-                    <select name="category" defaultValue=${editingItem?.category || "Misc"} className="w-full bg-slate-50 p-5 rounded-2xl font-black text-[10px] uppercase tracking-widest outline-none">${CATEGORIES.map(c => html`<option value=${c.name}>${c.name}</option>`)}</select>
-                    <input name="merchant" defaultValue=${editingItem?.merchant} placeholder="Merchant / Context" className="w-full bg-slate-50 p-5 rounded-2xl font-bold text-sm outline-none" />
-                    <input name="date" type="date" defaultValue=${getLocalYMD(editingItem ? parseDate(editingItem.date) : new Date())} className="w-full bg-slate-50 p-5 rounded-2xl font-black uppercase text-xs outline-none" required />
-                    <input type="hidden" name="type" value="expense" />
+                )}
+
+                <form key={editingItem?.id || 'new'} onSubmit={saveTransaction} className="space-y-5">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">1. Currency</label>
+                    <div className="flex bg-slate-50 p-3 rounded-2xl overflow-x-auto no-scrollbar gap-2">
+                      {window.LAVENDER_CURRENCIES.map(c => (
+                        <label key={c.code} className="cursor-pointer shrink-0">
+                          <input type="radio" name="currency" value={c.code} className="hidden peer" defaultChecked={(editingItem ? editingItem.currency : primaryCurrency) === c.code} />
+                          <div className="px-4 py-2 bg-white rounded-xl border border-slate-200 peer-checked:bg-slate-900 peer-checked:text-white peer-checked:border-slate-900 font-bold text-[10px] transition-all shadow-sm">
+                            {c.flag} {c.code}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                  <button type="submit" className="w-full bg-slate-900 text-white p-6 rounded-[2rem] font-black uppercase text-[10px] tracking-widest shadow-2xl active-scale">Commit</button>
-                  <button type="button" onClick=${() => setShowAddModal(false)} className="w-full p-4 text-slate-300 font-black text-[10px] uppercase tracking-widest">Close</button>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">2. Amount</label>
+                    <input name="amount" type="number" step="0.01" defaultValue={editingItem?.amount} autoFocus placeholder="0.00" className="w-full bg-slate-50 p-6 rounded-3xl font-black text-4xl text-center outline-none border border-slate-200 focus:border-purple-400 focus:ring-4 ring-purple-100 transition-all" />
+                  </div>
+                  <div className="flex bg-slate-100 p-1 rounded-xl">
+                    <label className="flex-1 cursor-pointer">
+                      <input type="radio" name="type" value="expense" className="hidden peer" defaultChecked={editingItem?.type !== 'income' && editingItem?.category !== 'Transfer In / Salary'} />
+                      <div className="text-center py-2 rounded-lg peer-checked:bg-slate-900 peer-checked:text-white font-bold text-xs uppercase transition-all">Spend</div>
+                    </label>
+                    <label className="flex-1 cursor-pointer">
+                      <input type="radio" name="type" value="income" className="hidden peer" defaultChecked={editingItem?.type === 'income' || editingItem?.category === 'Transfer In / Salary'} />
+                      <div className="text-center py-2 rounded-lg peer-checked:bg-slate-900 peer-checked:text-white font-bold text-xs uppercase transition-all">Income</div>
+                    </label>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">3. Select Category</label>
+                    <div className="relative">
+                      <select name="category" defaultValue={editingItem?.category || "Miscellaneous"} className="w-full bg-white border-2 border-slate-200 p-5 rounded-2xl outline-none font-bold text-sm focus:border-purple-500 appearance-none transition-all shadow-sm">
+                        {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                      </select>
+                      <ChevronRight className="absolute right-5 top-1/2 -translate-y-1/2 rotate-90 text-slate-400 pointer-events-none" size={20} />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">4. Account / 5. Bill Link</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select name="accountId" defaultValue={editingItem?.accountId || ""} className="w-full bg-white border-2 border-slate-200 p-3 rounded-xl outline-none font-bold text-xs focus:border-purple-500 transition-all">
+                        <option value="">No Account</option>
+                        {debts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      </select>
+                      <select name="commitmentId" defaultValue={editingItem?.commitmentId || ""} className="w-full bg-white border-2 border-slate-200 p-3 rounded-xl outline-none font-bold text-xs focus:border-purple-500 transition-all">
+                        <option value="">No Bill</option>
+                        {commitments.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">6. Date</label>
+                    <input name="date" type="date" defaultValue={getLocalYMD(editingItem ? parseDate(editingItem.date) : new Date())} className="w-full bg-slate-50 p-5 rounded-2xl outline-none text-sm border border-slate-200 focus:border-purple-400 focus:ring-4 ring-purple-100 transition-all" required />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">7. Details</label>
+                    <input name="merchant" defaultValue={editingItem?.merchant} placeholder="Note (e.g., Petrol)" className="w-full bg-slate-50 p-5 rounded-2xl outline-none text-sm border border-slate-200 focus:border-purple-400 focus:ring-4 ring-purple-100 transition-all" />
+                  </div>
+                  <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black text-sm tracking-widest uppercase shadow-xl active:scale-95 transition-transform mt-4">
+                    {editingItem ? 'UPDATE TRANSACTION' : 'SAVE TO CLOUD'}
+                  </button>
                 </form>
               </div>
             </div>
-          `}
+          )}
 
-          ${confirmDelete && html`
-            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[200] flex items-center justify-center p-6 animate-in">
-              <div className="bg-white p-8 rounded-[3rem] w-full max-w-xs shadow-2xl text-center">
-                <h3 className="text-2xl font-black mb-10 font-heading">Purge Record?</h3>
-                <div className="flex gap-4">
-                  <button onClick=${() => setConfirmDelete(null)} className="flex-1 py-4 bg-slate-100 rounded-2xl font-black text-slate-400 text-[10px] uppercase tracking-widest active-scale">Cancel</button>
-                  <button onClick=${dbDelete} className="flex-1 py-4 bg-rose-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest active-scale">Delete</button>
+          {showSmartSync && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-white w-full max-w-sm rounded-t-[3rem] p-8 shadow-2xl animate-in slide-in-from-bottom max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black flex items-center gap-2"><Sparkles className="text-indigo-500" /> AI Scan Hub</h3><button onClick={() => { setShowSmartSync(false); setSyncResults([]); }} className="bg-slate-100 p-2 rounded-full"><X size={20} /></button></div>
+                {syncResults.length === 0 ? (
+                  <div className="space-y-6 pb-6">
+                    <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl text-xs font-bold text-slate-500 mb-4 leading-relaxed">
+                      Upload your <span className="text-slate-900 font-black">Excel (.xls/.csv)</span> statement. AI will categorize everything automatically.
+                    </div>
+                    <div className="grid grid-cols-1 gap-3">
+                      <label className={`bg-slate-900 text-white p-5 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer active:scale-95 transition-all shadow-lg ${!isOnline ? 'opacity-30 pointer-events-none' : ''}`}>
+                        <FileCode size={24} /><span className="text-[10px] font-black uppercase tracking-widest">Upload File</span>
+                        <input type="file" className="hidden" accept=".csv,.xls,.xlsx,.txt,image/*" onChange={(e) => {
+                          const file = e.target.files[0]; if (!file) return;
+                          const r = new FileReader();
+                          if (file.type.startsWith('image/')) {
+                            r.onload = () => {
+                              const base64 = r.result?.includes(',') ? r.result.split(',')[1] : r.result;
+                              processSmartSync(base64, true);
+                            };
+                            r.readAsDataURL(file);
+                          } else {
+                            r.onload = () => processSmartSync(r.result, false);
+                            r.readAsText(file);
+                          }
+                        }} />
+                      </label>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4 pb-6">
+                    <div className="bg-emerald-50 text-emerald-700 p-3 rounded-xl text-xs font-bold border border-emerald-200">Ready to import {syncResults.length} transactions.</div>
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
+                      {syncResults.map((item, idx) => (
+                        <div key={idx} className="bg-white p-4 rounded-2xl flex justify-between items-center shadow-sm border border-slate-100">
+                          <div className="overflow-hidden mr-2">
+                            <p className="font-bold text-xs truncate w-32">{item.merchant}</p>
+                            <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase">{item.category}</p>
+                          </div>
+                          <p className={`font-black text-sm flex-shrink-0 ${item.type === 'income' ? 'text-emerald-600' : 'text-slate-900'}`}>{item.amount} {item.currency}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={confirmSync} className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black shadow-xl active:scale-95 transition-all uppercase tracking-widest text-sm">Save All to Cloud</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {showCommitmentModal && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-white w-full max-w-sm rounded-t-[3rem] p-8 shadow-2xl animate-in slide-in-from-bottom">
+                <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black">Add Fixed Bill</h3><button onClick={() => setShowCommitmentModal(false)} className="bg-slate-100 p-2 rounded-full"><X size={20} /></button></div>
+                <form onSubmit={async (e) => {
+                  e.preventDefault(); if (!user) return;
+                  const fd = new FormData(e.target);
+                  await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'commitments'), {
+                    name: fd.get('name') || 'Unknown Bill', amount: parseFloat(fd.get('amount')) || 0,
+                    currency: fd.get('currency'), category: fd.get('category'), createdAt: serverTimestamp()
+                  }); showToast("Bill Added"); setShowCommitmentModal(false);
+                }} className="space-y-4">
+                  <input name="name" placeholder="Bill Name (e.g. Rent)" className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-bold" required />
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Currency</label>
+                    <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full">
+                      <label className="flex-1 cursor-pointer">
+                        <input type="radio" name="currency" value="SAR" className="hidden peer" defaultChecked />
+                        <div className="text-center py-3 rounded-xl peer-checked:bg-purple-600 peer-checked:text-white font-black text-xs uppercase transition-all shadow-sm">🇸🇦 SAR</div>
+                      </label>
+                      <label className="flex-1 cursor-pointer">
+                        <input type="radio" name="currency" value="INR" className="hidden peer" />
+                        <div className="text-center py-3 rounded-xl peer-checked:bg-indigo-600 peer-checked:text-white font-black text-xs uppercase transition-all shadow-sm">🇮🇳 INR</div>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Amount</label>
+                    <input name="amount" type="number" step="0.01" placeholder="0.00" className="w-full bg-slate-50 p-5 rounded-2xl border-none font-black text-2xl text-center outline-none focus:ring-2 ring-purple-200 transition-all" required />
+                  </div>
+                  <div className="relative">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Category</label>
+                    <select name="category" className="w-full bg-white border-2 border-slate-200 p-5 rounded-2xl outline-none font-bold text-sm focus:border-purple-500 appearance-none transition-all shadow-sm mt-1">
+                      {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                    </select>
+                    <ChevronRight className="absolute right-5 top-11 -translate-y-1/2 rotate-90 text-slate-400 pointer-events-none" size={20} />
+                  </div>
+                  <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black uppercase tracking-widest mt-2 hover:bg-slate-800 active:scale-95 transition-all shadow-lg">Save Bill</button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {showDebtModal && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className="bg-white w-full max-w-sm rounded-t-[3rem] p-8 shadow-2xl animate-in slide-in-from-bottom max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-6"><div><h3 className="text-xl font-black">Link Account</h3></div><button onClick={() => setShowDebtModal(false)} className="bg-slate-100 p-2 rounded-full"><X size={20} /></button></div>
+                <form onSubmit={async (e) => {
+                  e.preventDefault(); if (!user) return;
+                  const fd = new FormData(e.target);
+                  await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'debts'), {
+                    name: fd.get('name'), amount: parseFloat(fd.get('amount')) || 0,
+                    currency: fd.get('currency'), type: fd.get('accountType'), createdAt: serverTimestamp()
+                  }); showToast("Account Added"); setShowDebtModal(false);
+                }} className="space-y-4">
+                  <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full">
+                    <label className="flex-1 cursor-pointer">
+                      <input type="radio" name="accountType" value="asset" className="hidden peer" defaultChecked />
+                      <div className="text-center py-2.5 rounded-xl peer-checked:bg-indigo-600 peer-checked:text-white font-black text-xs uppercase transition-all shadow-sm">Bank Account</div>
+                    </label>
+                    <label className="flex-1 cursor-pointer">
+                      <input type="radio" name="accountType" value="debt" className="hidden peer" />
+                      <div className="text-center py-2.5 rounded-xl peer-checked:bg-rose-600 peer-checked:text-white font-black text-xs uppercase transition-all shadow-sm">Loan / Debt</div>
+                    </label>
+                  </div>
+                  <input name="name" placeholder="Bank or Card Name (e.g. HDFC Debt)" className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-bold mt-2" required />
+                  
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Currency</label>
+                    <div className="flex bg-slate-50 p-3 rounded-2xl overflow-x-auto no-scrollbar gap-2">
+                      {window.LAVENDER_CURRENCIES.map(c => (
+                        <label key={c.code} className="cursor-pointer shrink-0">
+                          <input type="radio" name="currency" value={c.code} className="hidden peer" defaultChecked={(primaryCurrency === c.code)} />
+                          <div className="px-4 py-2 bg-white rounded-xl border border-slate-200 peer-checked:bg-slate-900 peer-checked:text-white peer-checked:border-slate-900 font-bold text-[10px] transition-all shadow-sm">
+                            {c.flag} {c.code}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Initial Balance</label>
+                    <input name="amount" type="number" step="0.01" placeholder="0.00" className="w-full bg-slate-50 p-5 rounded-2xl border-none font-black text-2xl text-center outline-none focus:ring-2 ring-purple-200 transition-all" required />
+                  </div>
+                  
+                  <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black uppercase tracking-widest mt-2 hover:bg-slate-800 active:scale-95 transition-all shadow-lg">Save Record</button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {isProcessing && (
+            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[200] flex flex-col items-center justify-center p-6 text-center">
+              <Loader2 className="animate-spin text-white mb-6" size={48} />
+              <p className="text-xl font-black text-white leading-tight uppercase tracking-widest">Processing Data...</p>
+            </div>
+          )}
+
+          {toast && (
+            <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[300] px-6 py-3 rounded-full bg-slate-900 text-white font-black text-[10px] shadow-2xl flex items-center gap-2 animate-in slide-in-from-top-4" style={{ maxWidth: '90vw' }}>
+              {toast.type === 'error' ? <AlertTriangle size={14} className="text-rose-400 flex-shrink-0" /> : <CheckCircle2 size={14} className="text-emerald-400 flex-shrink-0" />}
+              <span className="whitespace-normal break-words leading-tight">{toast.message}</span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function DashboardTab({ stats, formatMoney, isOnline, settings, showToast, apiKey, callGemini, secondaryCurrency }) {
+      const [aiInsight, setAiInsight] = useState(null);
+      const [isGenerating, setIsGenerating] = useState(false);
+
+      const generateAiInsight = async () => {
+        if (!apiKey) {
+          showToast("Gemini API key not configured. Check config.js", "error");
+          setIsGenerating(false);
+          return;
+        }
+        setIsGenerating(true);
+        try {
+          const prompt = `You are Lavender, an expert AI financial advisor. Review this month's data and provide exactly 3 short, insightful bullet points to help the user save money or manage better.
+          Data:
+          Total Income: ${stats.incSAR}
+          Total Expenses: ${stats.expSAR}
+          Safe to spend daily: ${stats.dailyAllowance}
+          Spent today: ${stats.todaySpendSAR}
+          Category Spending: ${JSON.stringify(stats.categoryTotals)}
+          Use simple, encouraging language. Don't use markdown headers, just 3 short bullet points with a relevant emoji for each.`;
+
+          const text = await callGemini(apiKey, prompt, false);
+          setAiInsight(text);
+        } catch (e) {
+          showToast("AI Error: " + e.message, "error", 6000);
+        } finally {
+          setIsGenerating(false);
+        }
+      };
+
+      return (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+          <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white space-y-8 shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-40 h-40 bg-purple-500/20 rounded-full -mr-20 -mt-20 blur-3xl"></div>
+            
+            <div className="flex justify-between items-start relative z-10">
+              <div className="space-y-1">
+                <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">Net Wealth</p>
+                <h2 className="text-3xl font-black tracking-tighter leading-none text-emerald-400">
+                  {formatMoney(stats.totalWealthSAR)}
+                </h2>
+                <p className="text-[10px] font-bold text-slate-500">{formatMoney(stats.totalWealthSAR, secondaryCurrency)}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">Growth</p>
+                <div className="flex items-center gap-1 text-slate-500 font-bold text-[8px] mt-1 justify-end uppercase tracking-widest">
+                   (coming soon)
                 </div>
               </div>
             </div>
-          `}
 
-          ${toast && html`<div className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[400] px-8 py-4 rounded-2xl bg-slate-900 text-white font-black text-[10px] shadow-2xl uppercase tracking-widest flex items-center gap-3 animate-in"><${Icon} name="Check" size="16" /> ${toast.message}</div>`}
+            <div className="space-y-1 relative z-10 pt-4 border-t border-white/5">
+              <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.2em]">Remaining Today</p>
+              <h2 className={`text-5xl font-black tracking-tighter leading-none ${stats.leftForToday < 0 ? 'text-rose-400' : 'text-white'}`}>
+                {formatMoney(stats.leftForToday)}
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 relative z-10">
+              <div className="bg-white/5 p-4 rounded-3xl border border-white/10 backdrop-blur-md">
+                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Daily Limit</p>
+                <p className="text-lg font-black mt-1.5 text-white">{formatMoney(stats.dailyAllowance)}</p>
+              </div>
+              <div className="bg-white/5 p-4 rounded-3xl border border-white/10 backdrop-blur-md">
+                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Monthly Savings</p>
+                <p className="text-lg font-black mt-1.5 text-emerald-400">{formatMoney(stats.lockedSavings)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className={`p-4 rounded-2xl ${stats.health === 'green' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}><Activity size={24} /></div>
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Spent Today</p>
+                <p className="text-2xl font-black text-slate-800">{formatMoney(stats.todaySpendSAR)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-br from-purple-900 to-indigo-900 rounded-[2.5rem] p-6 text-white shadow-xl relative overflow-hidden">
+            <div className="flex justify-between items-center mb-4 relative z-10">
+              <h3 className="font-black text-lg flex items-center gap-2"><Sparkles className="text-purple-300" /> ✨ AI Advisor</h3>
+              {!aiInsight && !isGenerating && (
+                <button onClick={generateAiInsight} className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-xl text-xs font-bold transition-all backdrop-blur-sm">Analyze Month</button>
+              )}
+            </div>
+            <div className="relative z-10">
+              {isGenerating ? (
+                <div className="flex items-center gap-3 text-purple-200 text-sm font-medium animate-pulse-soft">
+                  <Loader2 className="animate-spin" size={16} /> Analyzing your spending habits...
+                </div>
+              ) : aiInsight ? (
+                <div className="space-y-2 text-sm text-purple-50 font-medium leading-relaxed whitespace-pre-line">
+                  {aiInsight}
+                </div>
+              ) : (
+                <p className="text-xs text-purple-200">Tap analyze to get personalized insights on your spending, habits, and savings goals powered by Gemini AI.</p>
+              )}
+            </div>
+          </div>
+
         </div>
-      `;
+      );
     }
 
-    // Mount with error checking
-    try {
-      console.log("Starting React Mount...");
-      const root = ReactDOM.createRoot(document.getElementById("root"));
-      root.render(html`<${App} />`);
-      console.log("Mount Command Sent.");
-    } catch(err) {
-      console.error("Mount Failure:", err);
-      document.getElementById('loader-text').innerText = "App Mount Error: " + err.message;
+    function LogsTab({ transactions, formatMoney, setEditingItem, setShowAddModal, setConfirmDelete }) {
+      const [searchTerm, setSearchTerm] = useState("");
+      const [viewMonth, setViewMonth] = useState(getMonthKey());
+
+      const navigateMonth = (direction) => {
+        const [year, month] = viewMonth.split('-').map(Number);
+        const d = new Date(year, month - 1 + direction, 1);
+        setViewMonth(getMonthKey(d));
+      };
+
+      const filteredLogs = transactions
+        .filter(t => t.monthKey === viewMonth)
+        .filter(t => searchTerm === "" || (t.merchant || '').toLowerCase().includes(searchTerm.toLowerCase()) || (t.category || '').toLowerCase().includes(searchTerm.toLowerCase()));
+
+      return (
+        <div className="space-y-4 pb-20 animate-in fade-in slide-in-from-bottom-4">
+          <h2 className="text-xl font-black px-1 flex justify-between items-center">
+            Transactions
+          </h2>
+          <div className="flex items-center justify-between bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+            <button onClick={() => navigateMonth(-1)} className="p-2 bg-slate-100 rounded-xl font-black text-sm hover:bg-slate-200 transition-colors">&larr;</button>
+            <span className="text-sm font-black text-indigo-600 bg-indigo-50 px-4 py-2 rounded-xl">{viewMonth}</span>
+            <button onClick={() => navigateMonth(1)} className="p-2 bg-slate-100 rounded-xl font-black text-sm hover:bg-slate-200 transition-colors">&rarr;</button>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              type="text" placeholder="Search logs..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-white p-4 pl-12 rounded-2xl border border-slate-200 outline-none font-bold text-sm shadow-sm focus:border-indigo-400 focus:ring-4 ring-indigo-50 transition-all"
+            />
+          </div>
+          <div className="space-y-3">
+            {filteredLogs.map(t => {
+              const CatIcon = CATEGORIES.find(c => c.name === t.category)?.icon || Plus;
+              const RenderIcon = ICON_MAP[CatIcon] || Coins;
+              return (
+                <div key={t.id} className="bg-white p-5 rounded-[2rem] flex flex-col gap-4 border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm ${isIncome(t) ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-600'}`}><RenderIcon size={20} /></div>
+                      <div className="overflow-hidden">
+                        <p className="font-bold text-base text-slate-800 leading-tight truncate w-40">{t.merchant}</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{t.category}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className={`font-black text-lg ${isIncome(t) ? 'text-emerald-600' : 'text-slate-900'}`}>{isIncome(t) ? '+' : '-'}{t.amount}</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase">{t.currency}</p>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                    <button onClick={() => { setEditingItem(t); setShowAddModal(true); }} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-indigo-100 transition-colors"><Edit3 size={14} /> Edit</button>
+                    <button onClick={() => setConfirmDelete({ col: 'transactions', id: t.id, title: 'Transaction' })} className="flex items-center gap-1.5 px-4 py-2 bg-rose-50 text-rose-600 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-rose-100 transition-colors"><Trash2 size={14} /> Delete</button>
+                  </div>
+                </div>
+              );
+            })}
+            {filteredLogs.length === 0 && (
+              <div className="text-center py-20 bg-white rounded-[2rem] border border-slate-200">
+                <FileText className="mx-auto text-slate-300 mb-3" size={32} />
+                <p className="text-sm font-bold text-slate-400">No logs found.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      );
     }
+
+    function BillsTab({ stats, formatMoney, setConfirmDelete, setShowCommitmentModal }) {
+      return (
+        <div className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4">
+          <div className="flex justify-between items-center px-1">
+            <h2 className="text-xl font-black">Fixed Bills</h2>
+            <button onClick={() => setShowCommitmentModal(true)} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg flex items-center gap-2"><Plus size={16} /> Add Bill</button>
+          </div>
+          <div className="bg-indigo-600 rounded-[2.5rem] p-8 text-white shadow-xl shadow-indigo-100 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
+            <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest relative z-10">Unpaid Total</p>
+            <h3 className="text-4xl font-black mt-1 relative z-10">{formatMoney(stats.unpaidCommitmentsSAR)}</h3>
+          </div>
+          <div className="space-y-3">
+            {stats.commitmentList.map(item => (
+              <div key={item.id} className={`bg-white p-5 rounded-[2rem] border ${item.isPaid ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200'} flex items-center justify-between shadow-sm`}>
+                <div className="flex items-center gap-4">
+                  <div className={`p-3 rounded-2xl ${item.isPaid ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}><CalendarCheck size={20} /></div>
+                  <div>
+                    <p className="font-bold text-slate-800 leading-tight">{item.name}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-[10px] text-slate-500 font-bold uppercase bg-slate-100 px-2 py-0.5 rounded-md">{item.amount} {item.currency}</p>
+                      {item.isPaid && <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Paid</span>}
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => setConfirmDelete({ col: 'commitments', id: item.id, title: 'Bill' })} className="p-3 text-slate-300 hover:text-rose-500 transition-colors bg-slate-50 hover:bg-rose-50 rounded-xl"><Trash2 size={16} /></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function WealthTab({ stats, formatMoney, setConfirmDelete, setShowDebtModal }) {
+      return (
+        <div className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4">
+          <div className="flex justify-between items-center px-1">
+            <h2 className="text-xl font-black">Holdings & Liabilities</h2>
+            <button onClick={() => setShowDebtModal(true)} className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg flex items-center gap-2"><Plus size={16} /> Add A/c</button>
+          </div>
+          
+          <div className="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-[2.5rem] p-8 text-white shadow-xl shadow-emerald-100 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-10 -mt-10 blur-2xl"></div>
+            <p className="text-[10px] font-bold text-emerald-100 uppercase tracking-widest relative z-10">Consolidated Wealth</p>
+            <h3 className="text-4xl font-black mt-1 relative z-10">{formatMoney(stats.totalWealthSAR)}</h3>
+          </div>
+
+          <div className="space-y-3">
+            <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Bank Accounts / Assets</h3>
+            {stats.realtimeDebts.filter(d => d.type !== 'debt').map(asset => (
+              <div key={asset.id} className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600"><Landmark size={20} /></div>
+                  <div>
+                    <p className="font-bold text-slate-800 leading-tight">{asset.name}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-sm font-black text-slate-900">{formatMoney(asset.realtimeBalanceSAR)}</p>
+                      {asset.currency !== 'SAR' && (
+                        <p className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-100">
+                          {asset.realtimeBalanceOriginal.toLocaleString(undefined, { maximumFractionDigits: 0 })} {asset.currency}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => setConfirmDelete({ col: 'debts', id: asset.id, title: 'Account' })} className="p-3 text-slate-300 hover:text-rose-500 bg-slate-50 rounded-xl transition-all shadow-sm"><Trash2 size={16} /></button>
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-3 pt-4">
+            <h3 className="text-[10px] font-black uppercase text-rose-400 tracking-widest px-1">Credit Cards / Loans</h3>
+            {stats.realtimeDebts.filter(d => d.type === 'debt').map(debt => (
+              <div key={debt.id} className="bg-white p-5 rounded-[2rem] border border-rose-100 shadow-sm flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-rose-50 rounded-2xl text-rose-600"><Banknote size={20} /></div>
+                  <div>
+                    <p className="font-bold text-slate-800 leading-tight">{debt.name}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-sm font-black text-rose-600">{formatMoney(debt.realtimeBalanceSAR)}</p>
+                      {debt.currency !== 'SAR' && (
+                        <p className="text-[10px] font-bold text-rose-400 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-100">
+                          {debt.realtimeBalanceOriginal.toLocaleString(undefined, { maximumFractionDigits: 0 })} {debt.currency}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => setConfirmDelete({ col: 'debts', id: debt.id, title: 'Debt' })} className="p-3 text-slate-300 hover:text-rose-500 bg-slate-50 rounded-xl transition-all shadow-sm"><Trash2 size={16} /></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
   </script>
 </body>
 
