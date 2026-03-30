@@ -45,7 +45,7 @@
     import { createRoot } from 'react-dom/client';
     import { initializeApp, getApps, getApp } from 'firebase/app';
     import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, deleteDoc, serverTimestamp, updateDoc, writeBatch, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
-    import { getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+    import { getAuth, onAuthStateChanged, signInAnonymously, setPersistence, browserLocalPersistence } from 'firebase/auth';
     import { Wallet, Plus, TrendingUp, GraduationCap, Users, Loader2, Trash2, X, Landmark, PiggyBank, Target, Activity, Sparkles, Coins, CalendarCheck, UploadCloud, Wifi, WifiOff, Database, User as UserIcon, Edit3, FileCode, LayoutDashboard, History, LayoutList, ShoppingCart, Car, Coffee, Smartphone as PhoneIcon, ChevronRight, CheckCircle2, Banknote, BrainCircuit, AlertTriangle, RefreshCw, FileText, Search } from 'lucide-react';
 
     // ==========================================
@@ -259,11 +259,19 @@
         }
         const initAuth = async () => {
           try {
+            await setPersistence(auth, browserLocalPersistence);
             await signInAnonymously(auth);
           } catch (err) { console.error("Auth error:", err); }
         };
         initAuth();
-        return onAuthStateChanged(auth, (u) => { setUser(u); setLoading(false); });
+        return onAuthStateChanged(auth, (u) => { 
+          if (u) {
+            setUser(u);
+          } else {
+            setUser({ uid: 'lavender_local_user_v1' });
+          }
+          setLoading(false); 
+        });
       }, []);
 
       useEffect(() => {
@@ -349,11 +357,11 @@
             await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'), { ...data, createdAt: serverTimestamp() });
             showToast("Transaction Added!");
           }
+          setShowAddModal(false);
+          setEditingItem(null);
         } catch (err) {
-          showToast("Saved offline. Will sync when online.", "info");
+          showToast("Firebase Error: " + err.message, "error", 10000);
         }
-        setShowAddModal(false);
-        setEditingItem(null);
       };
 
       const handleMagicFill = async () => {
@@ -538,28 +546,36 @@
                       const fd = new FormData(e.target);
                       const pCur = fd.get('primaryCurrency');
                       const sCur = fd.get('secondaryCurrency');
-                      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'config'), {
-                        salary: parseFloat(fd.get('salary')) || 0, 
-                        savingsPercent: parseFloat(fd.get('savingsPercent')) || 30,
+                      const salCur = fd.get('salaryCurrency') || settings?.salaryCurrency || 'SAR';
+                      
+                      const newConfig = {
+                        salary: parseFloat(settings?.salary) || 0, 
+                        savingsPercent: parseFloat(settings?.savingsPercent) || 30,
                         primaryCurrency: pCur,
                         secondaryCurrency: sCur,
-                        salaryCurrency: fd.get('salaryCurrency') || 'SAR'
-                      });
-                      setPrimaryCurrency(pCur);
-                      setSecondaryCurrency(sCur);
-                      showToast("Settings Updated ✓");
+                        salaryCurrency: salCur
+                      };
+
+                      try {
+                        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'config'), newConfig, { merge: true });
+                        setPrimaryCurrency(pCur);
+                        setSecondaryCurrency(sCur);
+                        showToast("Settings Updated ✓");
+                      } catch(err) {
+                        showToast("Saved to offline cache", "info");
+                      }
                     }} 
                     className="space-y-6"
                   >
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Home Currency</label>
+                        <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Primary Tracking Currency</label>
                         <select name="primaryCurrency" defaultValue={primaryCurrency} className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none font-bold text-xs">
                           {window.LAVENDER_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code}</option>)}
                         </select>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Wealth Currency</label>
+                        <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Secondary Tracking Currency</label>
                         <select name="secondaryCurrency" defaultValue={secondaryCurrency} className="w-full bg-slate-50 p-4 rounded-2xl border border-slate-100 outline-none font-bold text-xs">
                           {window.LAVENDER_CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code}</option>)}
                         </select>
@@ -769,10 +785,16 @@
                 <form onSubmit={async (e) => {
                   e.preventDefault(); if (!user) return;
                   const fd = new FormData(e.target);
-                  await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'commitments'), {
-                    name: fd.get('name') || 'Unknown Bill', amount: parseFloat(fd.get('amount')) || 0,
-                    currency: fd.get('currency'), category: fd.get('category'), createdAt: serverTimestamp()
-                  }); showToast("Bill Added"); setShowCommitmentModal(false);
+                  try {
+                    await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'commitments'), {
+                      name: fd.get('name') || 'Unknown Bill', amount: parseFloat(fd.get('amount')) || 0,
+                      currency: fd.get('currency'), category: fd.get('category'), createdAt: serverTimestamp()
+                    }); 
+                    showToast("Bill Added"); 
+                    setShowCommitmentModal(false);
+                  } catch (err) {
+                    showToast("Firebase Error: " + err.message, "error", 10000);
+                  }
                 }} className="space-y-4">
                   <input name="name" placeholder="Bill Name (e.g. Rent)" className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-bold" required />
                   <div className="space-y-2">
@@ -812,10 +834,16 @@
                 <form onSubmit={async (e) => {
                   e.preventDefault(); if (!user) return;
                   const fd = new FormData(e.target);
-                  await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'debts'), {
-                    name: fd.get('name'), amount: parseFloat(fd.get('amount')) || 0,
-                    currency: fd.get('currency'), type: fd.get('accountType'), createdAt: serverTimestamp()
-                  }); showToast("Account Added"); setShowDebtModal(false);
+                  try {
+                    await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'debts'), {
+                      name: fd.get('name'), amount: parseFloat(fd.get('amount')) || 0,
+                      currency: fd.get('currency'), type: fd.get('accountType'), createdAt: serverTimestamp()
+                    }); 
+                    showToast("Account Added"); 
+                    setShowDebtModal(false);
+                  } catch (err) {
+                    showToast("Firebase Error: " + err.message, "error", 10000);
+                  }
                 }} className="space-y-4">
                   <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full">
                     <label className="flex-1 cursor-pointer">
