@@ -26,6 +26,8 @@
     }
   </script>
 
+  <!-- SheetJS for Excel Export -->
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.min.js"></script>
   <!-- Babel for parsing JSX in the browser -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
@@ -279,6 +281,8 @@
 
       const [showAddModal, setShowAddModal] = useState(false);
       const [editingItem, setEditingItem] = useState(null);
+      const [editingCommitment, setEditingCommitment] = useState(null);
+      const [editingDebt, setEditingDebt] = useState(null);
       const [showSmartSync, setShowSmartSync] = useState(false);
       const [showCommitmentModal, setShowCommitmentModal] = useState(false);
       const [showDebtModal, setShowDebtModal] = useState(false);
@@ -317,6 +321,23 @@
         const sign = displayValue < 0 ? '-' : '';
         const absFormatted = Math.abs(displayValue).toLocaleString(undefined, { maximumFractionDigits: 0 });
         return `${sign}${symbol} ${absFormatted}`;
+      };
+
+      const exportToExcel = () => {
+        if (transactions.length === 0) { showToast("No transactions to export", "error"); return; }
+        const data = transactions.map(t => ({
+          Date: getLocalYMD(parseDate(t.date)),
+          Merchant: t.merchant,
+          Amount: t.amount,
+          Currency: t.currency,
+          Category: t.category,
+          Type: t.type
+        }));
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Transactions");
+        XLSX.writeFile(wb, `Lavender_Expenses_${new Date().getFullYear()}.xlsx`);
+        showToast("Excel Exported!");
       };
 
       const showToast = (message, type = 'success', duration = 4000) => {
@@ -444,36 +465,49 @@
         setEditingItem(null);
       };
 
-      const handleMagicFill = async () => {
-        if (!apiKey) {
-          showToast("Gemini API key not configured", "error");
-          return;
-        }
-        if (!magicSms) return;
+      const handleAiAction = async (inputText = null, imageBase64 = null) => {
+        if (!apiKey) { showToast("Gemini API key not configured", "error"); return; }
+        const input = inputText || magicSms;
+        if (!input && !imageBase64) return;
+        
         setIsMagicLoading(true);
         try {
-          const prompt = `Extract transaction details from this text. Return ONLY a strict JSON object with these keys: 
-          - amount (number)
-          - merchant (string, guess the shop/person name)
-          - type ('income' or 'expense')
-          - category (string, MUST be one of: ${CATEGORIES.map(c => c.name).join(', ')})
-          Text: "${magicSms}"`;
+          const sysPrompt = `You are Lavender's Finance Agent. Convert user instructions or bank text into STRICT JSON. Support:
+          - upsert_credit_card: create/update card + optional bill.
+          - upsert_bill: create/update fixed bill.
+          - add_transaction: single expense/income.
+          - bulk_transactions: list of transactions.
+          RULES: Dates YYYY-MM-DD. Category MUST map to: ${CATEGORIES.map(c => c.name).join(', ')}. Return ONLY strict JSON.`;
 
-          const text = await callGemini(apiKey, prompt, true);
+          const text = await callGemini(apiKey, sysPrompt + "\nInput: " + input, true, imageBase64);
           const data = JSON.parse(text.replace(/```json/gi, '').replace(/```/g, '').trim());
 
-          if (data.amount) document.querySelector('input[name="amount"]').value = data.amount;
-          if (data.merchant) document.querySelector('input[name="merchant"]').value = data.merchant;
-          if (data.type) {
-            const radio = document.querySelector(`input[name="type"][value="${data.type}"]`);
-            if (radio) radio.checked = true;
+          if (data.action === 'upsert_credit_card') {
+            const cardData = { ...data.card, createdAt: serverTimestamp() };
+            const docRef = await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'debts'), cardData);
+            if (data.bill) {
+              await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'commitments'), { ...data.bill, linkedAccountId: docRef.id, createdAt: serverTimestamp() });
+            }
+            showToast("Credit Card & Bill Created!");
+          } else if (data.action === 'upsert_bill') {
+            await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'commitments'), { ...data.bill, createdAt: serverTimestamp() });
+            showToast("Bill Created!");
+          } else if (data.action === 'add_transaction') {
+            const t = data.transaction;
+            const amt = parseFloat(t.amount);
+            const tData = {
+               ...t, amount: amt, 
+               baseAmountSAR: t.currency === 'SAR' ? amt : amt / (rates[t.currency] || 1),
+               monthKey: getMonthKey(parseDate(t.date)),
+               date: parseDate(t.date), createdAt: serverTimestamp()
+            };
+            await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'transactions'), tData);
+            showToast("Transaction Recorded!");
+          } else if (data.action === 'bulk_transactions') {
+            setSyncResults(data.items);
+            setShowSmartSync(true);
+            showToast(`Parsed ${data.items.length} items. Review and import.`);
           }
-          if (data.category) {
-            const select = document.querySelector('select[name="category"]');
-            if (select) select.value = data.category;
-          }
-
-          showToast("✨ Magic Fill Complete!");
           setMagicSms("");
         } catch (e) {
           showToast("AI Error: " + e.message, "error", 6000);
@@ -645,10 +679,10 @@
 
           {/* TABS ENGINE */}
           <main className="px-6 space-y-6 pt-6">
-            {activeTab === 'dashboard' && <DashboardTab stats={stats} formatMoney={formatMoney} isOnline={isOnline} settings={settings} showToast={showToast} apiKey={apiKey} callGemini={callGemini} secondaryCurrency={secondaryCurrency} />}
+            {activeTab === 'dashboard' && <DashboardTab stats={stats} formatMoney={formatMoney} isOnline={isOnline} settings={settings} showToast={showToast} apiKey={apiKey} callGemini={callGemini} secondaryCurrency={secondaryCurrency} exportToExcel={exportToExcel} />}
             {activeTab === 'logs' && <LogsTab transactions={transactions} formatMoney={formatMoney} setEditingItem={setEditingItem} setShowAddModal={setShowAddModal} setConfirmDelete={setConfirmDelete} />}
-            {activeTab === 'bills' && <BillsTab stats={stats} formatMoney={formatMoney} setConfirmDelete={setConfirmDelete} setShowCommitmentModal={setShowCommitmentModal} />}
-            {activeTab === 'wealth' && <WealthTab stats={stats} formatMoney={formatMoney} setConfirmDelete={setConfirmDelete} setShowDebtModal={setShowDebtModal} />}
+            {activeTab === 'bills' && <BillsTab stats={stats} formatMoney={formatMoney} setConfirmDelete={setConfirmDelete} setShowCommitmentModal={setShowCommitmentModal} setEditingCommitment={setEditingCommitment} />}
+            {activeTab === 'wealth' && <WealthTab stats={stats} formatMoney={formatMoney} setConfirmDelete={setConfirmDelete} setShowDebtModal={setShowDebtModal} setEditingDebt={setEditingDebt} setDebtModalType={setDebtModalType} />}
             {activeTab === 'settings' && (
               <section className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4">
                 <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200">
@@ -809,17 +843,35 @@
                   <button onClick={() => { setShowAddModal(false); setEditingItem(null); }} className="bg-slate-100 p-2 rounded-full"><X size={20} /></button>
                 </div>
 
-                {/* ✨ Feature 2: Magic SMS Fill UI */}
+                {/* ✨ Magic Agent UI */}
                 {!editingItem && (
-                  <div className="bg-purple-50 p-4 rounded-2xl mb-6 border border-purple-100">
-                    <label className="text-[10px] font-black uppercase text-purple-600 tracking-widest flex items-center gap-1 mb-3">
-                      <Sparkles size={14} /> ✨ Magic SMS Auto-fill
+                  <div className="bg-purple-50 p-4 rounded-2xl mb-6 border border-purple-100 relative overflow-hidden">
+                    {isMagicLoading && <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] z-10 flex items-center justify-center"><Loader2 className="animate-spin text-purple-600" size={24} /></div>}
+                    <label className="text-[10px] font-black uppercase text-purple-600 tracking-widest flex items-center gap-1 mb-2">
+                      <Sparkles size={14} /> ✨ AI Finance Agent
                     </label>
                     <div className="flex gap-2">
-                      <input value={magicSms} onChange={(e) => setMagicSms(e.target.value)} placeholder="Paste bank SMS or natural text..." className="flex-1 bg-white p-3 rounded-xl text-xs outline-none border border-purple-200 font-medium shadow-sm" />
-                      <button type="button" onClick={handleMagicFill} disabled={isMagicLoading || !magicSms} className="bg-purple-600 text-white px-4 rounded-xl font-bold text-xs disabled:opacity-50 transition-all shadow-md">
-                        {isMagicLoading ? <Loader2 className="animate-spin" size={16} /> : 'Fill'}
-                      </button>
+                      <textarea 
+                        value={magicSms} onChange={(e) => setMagicSms(e.target.value)} 
+                        placeholder="Paste SMS or prompt..." 
+                        className="flex-1 bg-white p-3 rounded-xl text-xs outline-none border border-purple-200 font-medium shadow-sm h-16 resize-none" 
+                      />
+                      <div className="flex flex-col gap-2">
+                        <button type="button" onClick={() => handleAiAction()} className="p-2.5 bg-purple-600 text-white rounded-xl shadow-md active:scale-90 transition-all"><Sparkles size={16} /></button>
+                        <label className="p-2.5 bg-white text-purple-600 rounded-xl shadow-md border border-purple-100 cursor-pointer active:scale-90 transition-all">
+                          <UploadCloud size={16} />
+                          <input type="file" accept="image/*,text/*" className="hidden" onChange={async (e) => {
+                            const file = e.target.files[0]; if (!file) return;
+                            if (file.type.startsWith('image/')) {
+                              const r = new FileReader();
+                              r.onload = (re) => handleAiAction(file.name, re.target.result.split(',')[1]);
+                              r.readAsDataURL(file);
+                            } else {
+                              handleAiAction(await file.text());
+                            }
+                          }} />
+                        </label>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -943,12 +995,12 @@
           {showCommitmentModal && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
               <div className="bg-white w-full max-w-sm rounded-t-[3rem] p-8 shadow-2xl animate-in slide-in-from-bottom max-h-[90vh] overflow-y-auto">
-                <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black">Add Fixed Bill</h3><button onClick={() => setShowCommitmentModal(false)} className="bg-slate-100 p-2 rounded-full"><X size={20} /></button></div>
+                <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black">{editingCommitment ? 'Edit Bill' : 'Add Fixed Bill'}</h3><button onClick={() => { setShowCommitmentModal(false); setEditingCommitment(null); }} className="bg-slate-100 p-2 rounded-full"><X size={20} /></button></div>
                 <form onSubmit={async (e) => {
                   e.preventDefault(); if (!user) return;
                   const fd = new FormData(e.target);
                   
-                  addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'commitments'), {
+                  const billData = {
                     name: fd.get('name') || 'Unknown Bill', 
                     amount: parseFloat(fd.get('amount')) || 0,
                     currency: fd.get('currency'), 
@@ -957,66 +1009,66 @@
                     recurrence: fd.get('recurrence') || 'monthly',
                     autoPayAccountId: fd.get('autoPayAccountId') || null,
                     reminder: fd.get('reminder') === 'on',
-                    createdAt: serverTimestamp()
-                  }).catch(err => showToast("Firebase Error: " + err.message, "error", 10000));
+                    updatedAt: serverTimestamp()
+                  };
+
+                  if (editingCommitment) {
+                    await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'commitments', editingCommitment.id), billData);
+                    showToast("Bill Updated"); 
+                  } else {
+                    await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'commitments'), { ...billData, createdAt: serverTimestamp() });
+                    showToast("Bill Added"); 
+                  }
                   
-                  showToast("Bill Added"); 
                   setShowCommitmentModal(false);
+                  setEditingCommitment(null);
                 }} className="space-y-4">
-                  <input name="name" placeholder="Bill Name (e.g. Rent)" className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-bold" required />
+                  <input name="name" defaultValue={editingCommitment?.name} placeholder="Bill Name (e.g. Rent)" className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-bold" required />
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Currency</label>
                     <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full">
                       <label className="flex-1 cursor-pointer">
-                        <input type="radio" name="currency" value="SAR" className="hidden peer" defaultChecked />
+                        <input type="radio" name="currency" value="SAR" className="hidden peer" defaultChecked={!editingCommitment || editingCommitment.currency === 'SAR'} />
                         <div className="text-center py-3 rounded-xl peer-checked:bg-purple-600 peer-checked:text-white font-black text-xs uppercase transition-all shadow-sm">🇸🇦 SAR</div>
                       </label>
                       <label className="flex-1 cursor-pointer">
-                        <input type="radio" name="currency" value="INR" className="hidden peer" />
+                        <input type="radio" name="currency" value="INR" className="hidden peer" defaultChecked={editingCommitment?.currency === 'INR'} />
                         <div className="text-center py-3 rounded-xl peer-checked:bg-indigo-600 peer-checked:text-white font-black text-xs uppercase transition-all shadow-sm">🇮🇳 INR</div>
                       </label>
                     </div>
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Amount</label>
-                    <input name="amount" type="number" step="0.01" placeholder="0.00" className="w-full bg-slate-50 p-5 rounded-2xl border-none font-black text-2xl text-center outline-none focus:ring-2 ring-purple-200 transition-all" required />
+                    <input name="amount" type="number" step="0.01" defaultValue={editingCommitment?.amount} placeholder="0.00" className="w-full bg-slate-50 p-5 rounded-2xl border-none font-black text-2xl text-center outline-none focus:ring-2 ring-purple-200 transition-all" required />
                   </div>
                   
-                  {/* FEATURE 2A: Advanced Bill Params */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Due Date</label>
-                      <input name="dueDate" type="number" min="1" max="31" defaultValue="1" className="w-full bg-slate-50 p-4 rounded-2xl border-none font-bold outline-none focus:ring-2 ring-purple-200 transition-all text-center" required />
+                      <input name="dueDate" type="number" min="1" max="31" defaultValue={editingCommitment?.dueDate || 1} className="w-full bg-slate-50 p-4 rounded-2xl border-none font-bold outline-none focus:ring-2 ring-purple-200 transition-all text-center" required />
                     </div>
                     <div className="space-y-2 relative">
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Recurrence</label>
-                      <select name="recurrence" defaultValue="monthly" className="w-full bg-slate-50 border-none p-4 rounded-2xl outline-none font-bold text-xs focus:ring-2 ring-purple-200 appearance-none">
+                      <select name="recurrence" defaultValue={editingCommitment?.recurrence || 'monthly'} className="w-full bg-slate-50 border-none p-4 rounded-2xl outline-none font-bold text-xs focus:ring-2 ring-purple-200 appearance-none">
                         <option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option><option value="one-time">One-Time</option>
                       </select>
                       <ChevronRight className="absolute right-3 top-[34px] rotate-90 text-slate-400 pointer-events-none" size={16} />
                     </div>
                   </div>
-                  <div className="space-y-2 relative">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Auto-Pay Draft Account</label>
-                    <select name="autoPayAccountId" className="w-full bg-white border-2 border-slate-200 p-4 rounded-2xl outline-none font-bold text-sm focus:border-purple-500 appearance-none">
-                      <option value="">Manual Payment</option>
-                      {debts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                    </select>
-                    <ChevronRight className="absolute right-5 top-11 -translate-y-[2px] rotate-90 text-slate-400 pointer-events-none" size={20} />
-                  </div>
+                  
                   <label className="flex items-center gap-3 bg-indigo-50 p-4 rounded-2xl cursor-pointer mt-1">
-                    <input type="checkbox" name="reminder" defaultChecked className="w-5 h-5 rounded accent-indigo-600" />
-                    <div><p className="text-xs font-black text-indigo-900 leading-none">Enable Reminders</p><p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest mt-1">Alert when due date approaches</p></div>
+                    <input type="checkbox" name="reminder" defaultChecked={editingCommitment ? editingCommitment.reminder : true} className="w-5 h-5 rounded accent-indigo-600" />
+                    <div><p className="text-xs font-black text-indigo-900 leading-none">Enable Reminders</p></div>
                   </label>
 
                   <div className="relative">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Category</label>
-                    <select name="category" className="w-full bg-white border-2 border-slate-200 p-5 rounded-2xl outline-none font-bold text-sm focus:border-purple-500 appearance-none transition-all shadow-sm mt-1">
+                    <select name="category" defaultValue={editingCommitment?.category} className="w-full bg-white border-2 border-slate-200 p-5 rounded-2xl outline-none font-bold text-sm focus:border-purple-500 appearance-none transition-all shadow-sm mt-1">
                       {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                     </select>
                     <ChevronRight className="absolute right-5 top-11 -translate-y-1/2 rotate-90 text-slate-400 pointer-events-none" size={20} />
                   </div>
-                  <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black uppercase tracking-widest mt-2 hover:bg-slate-800 active:scale-95 transition-all shadow-lg">Save Bill</button>
+                  <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black uppercase tracking-widest mt-2 hover:bg-slate-800 transition-all shadow-lg">{editingCommitment ? 'Update Bill' : 'Save Bill'}</button>
                 </form>
               </div>
             </div>
@@ -1025,7 +1077,7 @@
           {showDebtModal && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
               <div className="bg-white w-full max-w-sm rounded-t-[3rem] p-8 shadow-2xl animate-in slide-in-from-bottom max-h-[90vh] overflow-y-auto">
-                <div className="flex justify-between items-center mb-6"><div><h3 className="text-xl font-black">Link Account</h3></div><button onClick={() => { setShowDebtModal(false); setDebtModalType('asset'); }} className="bg-slate-100 p-2 rounded-full"><X size={20} /></button></div>
+                <div className="flex justify-between items-center mb-6"><div><h3 className="text-xl font-black">{editingDebt ? 'Edit Account' : 'Link Account'}</h3></div><button onClick={() => { setShowDebtModal(false); setDebtModalType('asset'); setEditingDebt(null); }} className="bg-slate-100 p-2 rounded-full"><X size={20} /></button></div>
                 <form onSubmit={async (e) => {
                   e.preventDefault(); if (!user) return;
                   const fd = new FormData(e.target);
@@ -1036,7 +1088,7 @@
                     amount: parseFloat(fd.get('amount')) || 0,
                     currency: fd.get('currency'), 
                     type: type, 
-                    createdAt: serverTimestamp()
+                    updatedAt: serverTimestamp()
                   };
 
                   if (type === 'credit_card') {
@@ -1051,46 +1103,53 @@
                     accountData.autoCreateBill = fd.get('autoCreateBill') === 'on';
                   }
 
-                  addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'debts'), accountData).then(docRef => {
+                  if (editingDebt) {
+                    await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'debts', editingDebt.id), accountData);
+                    showToast("Account Updated"); 
+                  } else {
+                    const docRef = await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'debts'), { ...accountData, createdAt: serverTimestamp() });
                     if (accountData.autoCreateBill) {
                        const billData = {
                          name: type === 'credit_card' ? `${accountData.name} - Minimum Payment` : `${accountData.name} - EMI`,
                          amount: type === 'credit_card' ? (accountData.amount * (accountData.minimumPaymentPercent / 100)) : accountData.emiAmount,
                          currency: accountData.currency, category: 'Utilities & Bills',
-                         dueDate: type === 'credit_card' ? accountData.paymentDueDate : accountData.emiDueDate,
+                         dueDate: type === 'credit_card' ? accountData.paymentDueDate: accountData.emiDueDate,
                          recurrence: 'monthly', linkedAccountId: docRef.id, reminder: true, createdAt: serverTimestamp()
                        };
-                       addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'commitments'), billData);
+                       await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'commitments'), billData);
                     }
-                  }).catch(err => showToast("Firebase Error: " + err.message, "error", 10000));
+                    showToast("Account Linked");
+                  }
                   
-                  showToast("Account Added"); 
                   setShowDebtModal(false);
                   setDebtModalType('asset');
+                  setEditingDebt(null);
                 }} className="space-y-4">
-                  <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full">
-                    <label className="flex-1 cursor-pointer">
-                      <input type="radio" value="asset" checked={debtModalType === 'asset'} onChange={(e) => setDebtModalType(e.target.value)} className="hidden peer" />
-                      <div className="text-center py-2.5 rounded-xl peer-checked:bg-indigo-600 peer-checked:text-white font-black text-[10px] uppercase transition-all shadow-sm">Bank</div>
-                    </label>
-                    <label className="flex-1 cursor-pointer">
-                      <input type="radio" value="credit_card" checked={debtModalType === 'credit_card'} onChange={(e) => setDebtModalType(e.target.value)} className="hidden peer" />
-                      <div className="text-center py-2.5 rounded-xl peer-checked:bg-purple-600 peer-checked:text-white font-black text-[10px] uppercase transition-all shadow-sm">Credit</div>
-                    </label>
-                    <label className="flex-1 cursor-pointer">
-                      <input type="radio" value="debt" checked={debtModalType === 'debt'} onChange={(e) => setDebtModalType(e.target.value)} className="hidden peer" />
-                      <div className="text-center py-2.5 rounded-xl peer-checked:bg-rose-600 peer-checked:text-white font-black text-[10px] uppercase transition-all shadow-sm">Loan</div>
-                    </label>
-                  </div>
+                  {!editingDebt && (
+                    <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full">
+                      <label className="flex-1 cursor-pointer">
+                        <input type="radio" value="asset" checked={debtModalType === 'asset'} onChange={(e) => setDebtModalType(e.target.value)} className="hidden peer" />
+                        <div className="text-center py-2.5 rounded-xl peer-checked:bg-indigo-600 peer-checked:text-white font-black text-[10px] uppercase transition-all shadow-sm">Bank</div>
+                      </label>
+                      <label className="flex-1 cursor-pointer">
+                        <input type="radio" value="credit_card" checked={debtModalType === 'credit_card'} onChange={(e) => setDebtModalType(e.target.value)} className="hidden peer" />
+                        <div className="text-center py-2.5 rounded-xl peer-checked:bg-purple-600 peer-checked:text-white font-black text-[10px] uppercase transition-all shadow-sm">Credit</div>
+                      </label>
+                      <label className="flex-1 cursor-pointer">
+                        <input type="radio" value="debt" checked={debtModalType === 'debt'} onChange={(e) => setDebtModalType(e.target.value)} className="hidden peer" />
+                        <div className="text-center py-2.5 rounded-xl peer-checked:bg-rose-600 peer-checked:text-white font-black text-[10px] uppercase transition-all shadow-sm">Loan</div>
+                      </label>
+                    </div>
+                  )}
 
-                  <input name="name" placeholder={debtModalType === 'credit_card' ? "Card Name (e.g. STC Pay)" : "Account Name (e.g. SABB Salary)"} className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-bold mt-2" required />
+                  <input name="name" defaultValue={editingDebt?.name} placeholder={debtModalType === 'credit_card' ? "Card Name (e.g. STC Pay)" : "Account Name (e.g. SABB Salary)"} className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-bold mt-2" required />
                   
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Currency</label>
                     <div className="flex bg-slate-50 p-3 rounded-2xl overflow-x-auto no-scrollbar gap-2">
                       {window.LAVENDER_CURRENCIES.map(c => (
                         <label key={c.code} className="cursor-pointer shrink-0">
-                          <input type="radio" name="currency" value={c.code} checked={primaryCurrency === c.code} onChange={() => setPrimaryCurrency(c.code)} className="hidden peer" />
+                          <input type="radio" name="currency" value={c.code} checked={(primaryCurrency === c.code && !editingDebt) || (editingDebt?.currency === c.code)} onChange={() => !editingDebt && setPrimaryCurrency(c.code)} className="hidden peer" />
                           <div className="px-4 py-2 bg-white rounded-xl border border-slate-200 peer-checked:bg-slate-900 peer-checked:text-white peer-checked:border-slate-900 font-bold text-[10px] transition-all shadow-sm">{c.flag} {c.code}</div>
                         </label>
                       ))}
@@ -1099,30 +1158,30 @@
 
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">{debtModalType === 'credit_card' ? "Current Outstanding Balance" : "Initial Balance"}</label>
-                    <input name="amount" type="number" step="0.01" placeholder="0.00" className="w-full bg-slate-50 p-5 rounded-2xl border-none font-black text-2xl text-center outline-none focus:ring-2 ring-purple-200 transition-all" required />
+                    <input name="amount" type="number" step="0.01" defaultValue={editingDebt?.amount} placeholder="0.00" className="w-full bg-slate-50 p-5 rounded-2xl border-none font-black text-2xl text-center outline-none focus:ring-2 ring-purple-200 transition-all" required />
                   </div>
 
                   {debtModalType === 'credit_card' && (
                     <div className="space-y-3 p-4 bg-purple-50 rounded-2xl border border-purple-100 mt-2">
-                      <div className="space-y-2"><label className="text-[10px] font-black uppercase text-purple-600 tracking-widest ml-1">Total Credit Limit</label><input name="creditLimit" type="number" step="0.01" placeholder="10000.00" className="w-full p-4 rounded-xl border border-purple-200 outline-none font-bold focus:ring-2 ring-purple-300" required /></div>
+                      <div className="space-y-2"><label className="text-[10px] font-black uppercase text-purple-600 tracking-widest ml-1">Total Credit Limit</label><input name="creditLimit" type="number" step="0.01" defaultValue={editingDebt?.creditLimit} placeholder="10000.00" className="w-full p-4 rounded-xl border border-purple-200 outline-none font-bold focus:ring-2 ring-purple-300" required /></div>
                       <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-2"><label className="text-[10px] font-bold uppercase text-slate-500 ml-1">Statement Date</label><input name="statementDate" type="number" min="1" max="31" defaultValue="15" className="w-full p-3 rounded-xl border border-purple-200 outline-none" required /></div>
-                        <div className="space-y-2"><label className="text-[10px] font-bold uppercase text-slate-500 ml-1">Due Date</label><input name="paymentDueDate" type="number" min="1" max="31" defaultValue="5" className="w-full p-3 rounded-xl border border-purple-200 outline-none" required /></div>
+                        <div className="space-y-2"><label className="text-[10px] font-bold uppercase text-slate-500 ml-1">Statement Date</label><input name="statementDate" type="number" min="1" max="31" defaultValue={editingDebt?.statementDate || 15} className="w-full p-3 rounded-xl border border-purple-200 outline-none" required /></div>
+                        <div className="space-y-2"><label className="text-[10px] font-bold uppercase text-slate-500 ml-1">Due Date</label><input name="paymentDueDate" type="number" min="1" max="31" defaultValue={editingDebt?.paymentDueDate || 5} className="w-full p-3 rounded-xl border border-purple-200 outline-none" required /></div>
                       </div>
-                      <div className="space-y-2"><label className="text-[10px] font-bold uppercase text-slate-500 ml-1">Min Payment %</label><input name="minimumPaymentPercent" type="number" step="0.1" defaultValue="5" className="w-full p-3 rounded-xl border border-purple-200 outline-none" required /></div>
-                      <label className="flex items-center gap-3 bg-white p-3 rounded-xl shadow-sm cursor-pointer mt-2 border border-purple-100"><input type="checkbox" name="autoCreateBill" defaultChecked className="w-4 h-4 rounded" /><span className="text-xs font-bold text-slate-900">Auto-create as monthly bill</span></label>
+                      <div className="space-y-2"><label className="text-[10px] font-bold uppercase text-slate-500 ml-1">Min Payment %</label><input name="minimumPaymentPercent" type="number" step="0.1" defaultValue={editingDebt?.minimumPaymentPercent || 5} className="w-full p-3 rounded-xl border border-purple-200 outline-none" required /></div>
+                      {!editingDebt && <label className="flex items-center gap-3 bg-white p-3 rounded-xl shadow-sm cursor-pointer mt-2 border border-purple-100"><input type="checkbox" name="autoCreateBill" defaultChecked className="w-4 h-4 rounded" /><span className="text-xs font-bold text-slate-900">Auto-create as monthly bill</span></label>}
                     </div>
                   )}
 
                   {debtModalType === 'debt' && (
                     <div className="space-y-3 p-4 bg-rose-50 rounded-2xl border border-rose-100 mt-2">
-                      <div className="space-y-2"><label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">EMI Amount (Monthly Installment)</label><input name="emiAmount" type="number" step="0.01" placeholder="0.00" className="w-full p-4 rounded-xl border border-rose-200 outline-none font-bold focus:ring-2 ring-rose-300" /></div>
-                      <div className="space-y-2"><label className="text-[10px] font-bold uppercase text-slate-500 ml-1">EMI Due Date (1-31)</label><input name="emiDueDate" type="number" min="1" max="31" defaultValue="1" className="w-full p-3 rounded-xl border border-rose-200 outline-none" /></div>
-                      <label className="flex items-center gap-3 bg-white p-3 rounded-xl shadow-sm cursor-pointer mt-2 border border-rose-100"><input type="checkbox" name="autoCreateBill" defaultChecked className="w-4 h-4 rounded" /><span className="text-xs font-bold text-slate-900">Auto-create EMI as monthly bill</span></label>
+                      <div className="space-y-2"><label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">EMI Amount (Monthly Installment)</label><input name="emiAmount" type="number" step="0.01" defaultValue={editingDebt?.emiAmount} placeholder="0.00" className="w-full p-4 rounded-xl border border-rose-200 outline-none font-bold focus:ring-2 ring-rose-300" /></div>
+                      <div className="space-y-2"><label className="text-[10px] font-bold uppercase text-slate-500 ml-1">EMI Due Date (1-31)</label><input name="emiDueDate" type="number" min="1" max="31" defaultValue={editingDebt?.emiDueDate || 1} className="w-full p-3 rounded-xl border border-rose-200 outline-none" /></div>
+                      {!editingDebt && <label className="flex items-center gap-3 bg-white p-3 rounded-xl shadow-sm cursor-pointer mt-2 border border-rose-100"><input type="checkbox" name="autoCreateBill" defaultChecked className="w-4 h-4 rounded" /><span className="text-xs font-bold text-slate-900">Auto-create EMI as monthly bill</span></label>}
                     </div>
                   )}
                   
-                  <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black uppercase tracking-widest mt-4 hover:bg-slate-800 active:scale-95 transition-all shadow-lg">Save Record</button>
+                  <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black uppercase tracking-widest mt-4 hover:bg-slate-800 transition-all shadow-lg">{editingDebt ? 'Update Account' : 'Save Record'}</button>
                 </form>
               </div>
             </div>
@@ -1328,6 +1387,11 @@
             </div>
           </div>
 
+          <div className="flex justify-center pb-8 pt-4">
+            <button onClick={exportToExcel} className="flex items-center gap-2 bg-slate-900 text-white px-8 py-4 rounded-3xl font-black uppercase text-xs tracking-widest hover:scale-105 active:scale-95 transition-all shadow-xl">
+               <Database size={16} /> Export to Excel
+            </button>
+          </div>
         </div>
       );
     }
@@ -1450,7 +1514,10 @@
                     </div>
                   </div>
                 </div>
-                <button onClick={() => setConfirmDelete({ col: 'commitments', id: item.id, title: 'Bill' })} className="p-3 text-slate-300 hover:text-rose-500 transition-colors bg-slate-50 hover:bg-rose-50 rounded-xl"><Trash2 size={16} /></button>
+                <div className="flex gap-2">
+                  <button onClick={() => { setEditingCommitment(item); setShowCommitmentModal(true); }} className="p-3 text-indigo-400 hover:text-indigo-600 transition-colors bg-slate-50 hover:bg-indigo-50 rounded-xl"><Edit3 size={16} /></button>
+                  <button onClick={() => setConfirmDelete({ col: 'commitments', id: item.id, title: 'Bill' })} className="p-3 text-slate-300 hover:text-rose-500 transition-colors bg-slate-50 hover:bg-rose-50 rounded-xl"><Trash2 size={16} /></button>
+                </div>
               </div>
             ))}
             {stats.commitmentList.length === 0 && (
@@ -1500,7 +1567,10 @@
                     </div>
                   </div>
                 </div>
-                <button onClick={() => setConfirmDelete({ col: 'debts', id: asset.id, title: 'Account' })} className="p-3 text-slate-300 hover:text-rose-500 bg-slate-50 rounded-xl transition-all shadow-sm"><Trash2 size={16} /></button>
+                <div className="flex gap-2">
+                  <button onClick={() => { setEditingDebt(asset); setDebtModalType('asset'); setShowDebtModal(true); }} className="p-3 text-indigo-400 hover:text-indigo-600 transition-colors bg-slate-50 hover:bg-indigo-50 rounded-xl shadow-sm"><Edit3 size={16} /></button>
+                  <button onClick={() => setConfirmDelete({ col: 'debts', id: asset.id, title: 'Account' })} className="p-3 text-slate-300 hover:text-rose-500 bg-slate-50 rounded-xl transition-all shadow-sm"><Trash2 size={16} /></button>
+                </div>
               </div>
             ))}
           </div>
@@ -1518,10 +1588,13 @@
                       <p className="text-2xl font-black mt-1 leading-none">{formatMoney(card.realtimeBalanceSAR)}</p>
                       <p className="text-[10px] text-slate-500 mt-2 font-bold uppercase">of {formatMoney(card.creditLimit, card.currency)} limit</p>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right flex flex-col items-end">
                       <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Available</p>
                       <p className="text-lg font-black text-emerald-400 mt-1 leading-none">{formatMoney(card.availableCreditSAR)}</p>
-                      <button onClick={() => setConfirmDelete({ col: 'debts', id: card.id, title: 'Card' })} className="mt-4 p-2 bg-white/10 hover:bg-rose-500/20 hover:text-rose-400 rounded-lg transition-all"><Trash2 size={14} /></button>
+                      <div className="flex gap-2 mt-4">
+                        <button onClick={() => { setEditingDebt(card); setDebtModalType('credit_card'); setShowDebtModal(true); }} className="p-2 bg-white/10 hover:bg-indigo-500/20 hover:text-indigo-300 rounded-lg transition-all"><Edit3 size={14} /></button>
+                        <button onClick={() => setConfirmDelete({ col: 'debts', id: card.id, title: 'Card' })} className="p-2 bg-white/10 hover:bg-rose-500/20 hover:text-rose-400 rounded-lg transition-all"><Trash2 size={14} /></button>
+                      </div>
                     </div>
                   </div>
                   <div className="w-full bg-white/10 rounded-full h-2 mb-4 relative z-10">
@@ -1555,7 +1628,10 @@
                     </div>
                   </div>
                 </div>
-                <button onClick={() => setConfirmDelete({ col: 'debts', id: debt.id, title: 'Loan' })} className="p-3 text-slate-300 hover:text-rose-500 bg-slate-50 rounded-xl transition-all shadow-sm"><Trash2 size={16} /></button>
+                <div className="flex gap-2">
+                   <button onClick={() => { setEditingDebt(debt); setDebtModalType('debt'); setShowDebtModal(true); }} className="p-3 text-indigo-400 hover:text-indigo-600 transition-colors bg-slate-50 hover:bg-indigo-50 rounded-xl shadow-sm"><Edit3 size={16} /></button>
+                   <button onClick={() => setConfirmDelete({ col: 'debts', id: debt.id, title: 'Loan' })} className="p-3 text-slate-300 hover:text-rose-500 bg-slate-50 rounded-xl transition-all shadow-sm"><Trash2 size={16} /></button>
+                </div>
               </div>
             ))}
           </div>
