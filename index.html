@@ -127,6 +127,8 @@
         const lockedSavings = baseIncome * (savingsPercent / 100);
 
         let unpaidCommitmentsSAR = 0;
+        const todayDate = new Date().getDate();
+        const lastDayOfMonth = lastDay;
         const commitmentList = commitments.map(c => {
           const amtSAR = toSAR(c.amount, c.currency);
           const paidAmtSAR = transactions
@@ -135,7 +137,12 @@
 
           const remaining = Math.max(0, amtSAR - paidAmtSAR);
           unpaidCommitmentsSAR += remaining;
-          return { ...c, isPaid: paidAmtSAR >= (amtSAR * 0.99), remainingSAR: remaining };
+          
+          const dueDay = c.dueDate || 1;
+          const daysUntilDue = dueDay >= todayDate ? dueDay - todayDate : (lastDayOfMonth - todayDate) + dueDay;
+          const isOverdue = paidAmtSAR < (amtSAR * 0.99) && dueDay < todayDate;
+
+          return { ...c, isPaid: paidAmtSAR >= (amtSAR * 0.99), remainingSAR: remaining, daysUntilDue, isOverdue };
         });
 
         const fixedOutgoingsSAR = commitments.reduce((sum, c) => sum + toSAR(c.amount, c.currency), 0);
@@ -144,21 +151,43 @@
         const leftForToday = dailyAllowance - todaySpendSAR;
 
         let totalWealthSAR = 0;
+        let totalCreditUsedSAR = 0;
+        let totalCreditLimitSAR = 0;
+
         const realtimeDebts = debts.map(account => {
           let balance = toSAR(account.amount, account.currency);
           transactions.forEach(t => {
             if (t.accountId === account.id) {
               const valSAR = toSAR(t.amount, t.currency);
-              if (account.type === 'debt') {
+              if (account.type === 'debt' || account.type === 'credit_card') {
                 balance += isIncome(t) ? -valSAR : valSAR;
               } else {
                 balance += isIncome(t) ? valSAR : -valSAR;
               }
             }
           });
-          totalWealthSAR += (account.type === 'debt' ? -balance : balance);
+          totalWealthSAR += ((account.type === 'debt' || account.type === 'credit_card') ? -balance : balance);
+          
+          let cardDetails = {};
+          if (account.type === 'credit_card') {
+             const limit = toSAR(account.creditLimit || 0, account.currency);
+             totalCreditUsedSAR += balance;
+             totalCreditLimitSAR += limit;
+             
+             const dueDay = account.paymentDueDate || 1;
+             const daysUntilDue = dueDay >= todayDate ? dueDay - todayDate : (lastDayOfMonth - todayDate) + dueDay;
+             
+             cardDetails = {
+               availableCreditSAR: Math.max(0, limit - balance),
+               usagePercent: limit > 0 ? (balance / limit) * 100 : 0,
+               minimumPaymentSAR: balance * ((account.minimumPaymentPercent || 5) / 100),
+               daysUntilDue
+             };
+          }
+
           return { 
             ...account, 
+            ...cardDetails,
             realtimeBalanceSAR: balance,
             realtimeBalanceOriginal: fromSAR(balance, account.currency)
           };
@@ -168,7 +197,8 @@
           leftForToday, dailyAllowance, todaySpendSAR,
           incSAR: baseIncome, expSAR, lockedSavings,
           unpaidCommitmentsSAR, commitmentList, realtimeDebts, categoryTotals,
-          totalWealthSAR,
+          totalWealthSAR, totalCreditUsedSAR, totalCreditLimitSAR,
+          creditCards: realtimeDebts.filter(d => d.type === 'credit_card'),
           health: leftForToday < 0 ? "red" : leftForToday < (dailyAllowance * 0.2) ? "yellow" : "green"
         };
       }, [transactions, commitments, debts, settings, rates]);
@@ -252,6 +282,7 @@
       const [showSmartSync, setShowSmartSync] = useState(false);
       const [showCommitmentModal, setShowCommitmentModal] = useState(false);
       const [showDebtModal, setShowDebtModal] = useState(false);
+      const [debtModalType, setDebtModalType] = useState('asset');
       const [confirmDelete, setConfirmDelete] = useState(null);
       const [syncResults, setSyncResults] = useState([]);
 
@@ -604,6 +635,14 @@
             </div>
           </header>
 
+          {/* FEATURE 7: Quick Stats Sub-bar */}
+          <div className="bg-white border-b border-slate-100 px-6 py-2 flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-slate-400 overflow-x-auto no-scrollbar gap-6 sticky top-[81px] z-20 backdrop-blur-md bg-white/80">
+             <div className="flex items-center gap-2 whitespace-nowrap"><div className="w-1 h-1 bg-emerald-400 rounded-full"></div> In: {formatMoney(stats.incSAR)}</div>
+             <div className="flex items-center gap-2 whitespace-nowrap"><div className="w-1 h-1 bg-rose-400 rounded-full"></div> Out: {formatMoney(stats.expSAR)}</div>
+             <div className="flex items-center gap-2 whitespace-nowrap"><div className="w-1 h-1 bg-purple-400 rounded-full"></div> Cards: {formatMoney(stats.totalCreditUsedSAR)}</div>
+             <div className="flex items-center gap-2 whitespace-nowrap"><div className="w-1 h-1 bg-amber-400 rounded-full"></div> Bills: {formatMoney(stats.unpaidCommitmentsSAR)}</div>
+          </div>
+
           {/* TABS ENGINE */}
           <main className="px-6 space-y-6 pt-6">
             {activeTab === 'dashboard' && <DashboardTab stats={stats} formatMoney={formatMoney} isOnline={isOnline} settings={settings} showToast={showToast} apiKey={apiKey} callGemini={callGemini} secondaryCurrency={secondaryCurrency} />}
@@ -903,15 +942,22 @@
 
           {showCommitmentModal && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
-              <div className="bg-white w-full max-w-sm rounded-t-[3rem] p-8 shadow-2xl animate-in slide-in-from-bottom">
+              <div className="bg-white w-full max-w-sm rounded-t-[3rem] p-8 shadow-2xl animate-in slide-in-from-bottom max-h-[90vh] overflow-y-auto">
                 <div className="flex justify-between items-center mb-6"><h3 className="text-xl font-black">Add Fixed Bill</h3><button onClick={() => setShowCommitmentModal(false)} className="bg-slate-100 p-2 rounded-full"><X size={20} /></button></div>
                 <form onSubmit={async (e) => {
                   e.preventDefault(); if (!user) return;
                   const fd = new FormData(e.target);
                   
                   addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'commitments'), {
-                    name: fd.get('name') || 'Unknown Bill', amount: parseFloat(fd.get('amount')) || 0,
-                    currency: fd.get('currency'), category: fd.get('category'), createdAt: serverTimestamp()
+                    name: fd.get('name') || 'Unknown Bill', 
+                    amount: parseFloat(fd.get('amount')) || 0,
+                    currency: fd.get('currency'), 
+                    category: fd.get('category'),
+                    dueDate: parseInt(fd.get('dueDate')) || 1,
+                    recurrence: fd.get('recurrence') || 'monthly',
+                    autoPayAccountId: fd.get('autoPayAccountId') || null,
+                    reminder: fd.get('reminder') === 'on',
+                    createdAt: serverTimestamp()
                   }).catch(err => showToast("Firebase Error: " + err.message, "error", 10000));
                   
                   showToast("Bill Added"); 
@@ -935,6 +981,34 @@
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Amount</label>
                     <input name="amount" type="number" step="0.01" placeholder="0.00" className="w-full bg-slate-50 p-5 rounded-2xl border-none font-black text-2xl text-center outline-none focus:ring-2 ring-purple-200 transition-all" required />
                   </div>
+                  
+                  {/* FEATURE 2A: Advanced Bill Params */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Due Date</label>
+                      <input name="dueDate" type="number" min="1" max="31" defaultValue="1" className="w-full bg-slate-50 p-4 rounded-2xl border-none font-bold outline-none focus:ring-2 ring-purple-200 transition-all text-center" required />
+                    </div>
+                    <div className="space-y-2 relative">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Recurrence</label>
+                      <select name="recurrence" defaultValue="monthly" className="w-full bg-slate-50 border-none p-4 rounded-2xl outline-none font-bold text-xs focus:ring-2 ring-purple-200 appearance-none">
+                        <option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option><option value="one-time">One-Time</option>
+                      </select>
+                      <ChevronRight className="absolute right-3 top-[34px] rotate-90 text-slate-400 pointer-events-none" size={16} />
+                    </div>
+                  </div>
+                  <div className="space-y-2 relative">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Auto-Pay Draft Account</label>
+                    <select name="autoPayAccountId" className="w-full bg-white border-2 border-slate-200 p-4 rounded-2xl outline-none font-bold text-sm focus:border-purple-500 appearance-none">
+                      <option value="">Manual Payment</option>
+                      {debts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                    <ChevronRight className="absolute right-5 top-11 -translate-y-[2px] rotate-90 text-slate-400 pointer-events-none" size={20} />
+                  </div>
+                  <label className="flex items-center gap-3 bg-indigo-50 p-4 rounded-2xl cursor-pointer mt-1">
+                    <input type="checkbox" name="reminder" defaultChecked className="w-5 h-5 rounded accent-indigo-600" />
+                    <div><p className="text-xs font-black text-indigo-900 leading-none">Enable Reminders</p><p className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest mt-1">Alert when due date approaches</p></div>
+                  </label>
+
                   <div className="relative">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Category</label>
                     <select name="category" className="w-full bg-white border-2 border-slate-200 p-5 rounded-2xl outline-none font-bold text-sm focus:border-purple-500 appearance-none transition-all shadow-sm mt-1">
@@ -951,51 +1025,104 @@
           {showDebtModal && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
               <div className="bg-white w-full max-w-sm rounded-t-[3rem] p-8 shadow-2xl animate-in slide-in-from-bottom max-h-[90vh] overflow-y-auto">
-                <div className="flex justify-between items-center mb-6"><div><h3 className="text-xl font-black">Link Account</h3></div><button onClick={() => setShowDebtModal(false)} className="bg-slate-100 p-2 rounded-full"><X size={20} /></button></div>
+                <div className="flex justify-between items-center mb-6"><div><h3 className="text-xl font-black">Link Account</h3></div><button onClick={() => { setShowDebtModal(false); setDebtModalType('asset'); }} className="bg-slate-100 p-2 rounded-full"><X size={20} /></button></div>
                 <form onSubmit={async (e) => {
                   e.preventDefault(); if (!user) return;
                   const fd = new FormData(e.target);
+                  const type = debtModalType;
                   
-                  addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'debts'), {
-                    name: fd.get('name'), amount: parseFloat(fd.get('amount')) || 0,
-                    currency: fd.get('currency'), type: fd.get('accountType'), createdAt: serverTimestamp()
+                  const accountData = {
+                    name: fd.get('name'), 
+                    amount: parseFloat(fd.get('amount')) || 0,
+                    currency: fd.get('currency'), 
+                    type: type, 
+                    createdAt: serverTimestamp()
+                  };
+
+                  if (type === 'credit_card') {
+                    accountData.creditLimit = parseFloat(fd.get('creditLimit')) || 0;
+                    accountData.statementDate = parseInt(fd.get('statementDate')) || 15;
+                    accountData.paymentDueDate = parseInt(fd.get('paymentDueDate')) || 5;
+                    accountData.minimumPaymentPercent = parseFloat(fd.get('minimumPaymentPercent')) || 5;
+                    accountData.autoCreateBill = fd.get('autoCreateBill') === 'on';
+                  } else if (type === 'debt') {
+                    accountData.emiAmount = parseFloat(fd.get('emiAmount')) || 0;
+                    accountData.emiDueDate = parseInt(fd.get('emiDueDate')) || 1;
+                    accountData.autoCreateBill = fd.get('autoCreateBill') === 'on';
+                  }
+
+                  addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'debts'), accountData).then(docRef => {
+                    if (accountData.autoCreateBill) {
+                       const billData = {
+                         name: type === 'credit_card' ? `${accountData.name} - Minimum Payment` : `${accountData.name} - EMI`,
+                         amount: type === 'credit_card' ? (accountData.amount * (accountData.minimumPaymentPercent / 100)) : accountData.emiAmount,
+                         currency: accountData.currency, category: 'Utilities & Bills',
+                         dueDate: type === 'credit_card' ? accountData.paymentDueDate : accountData.emiDueDate,
+                         recurrence: 'monthly', linkedAccountId: docRef.id, reminder: true, createdAt: serverTimestamp()
+                       };
+                       addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'commitments'), billData);
+                    }
                   }).catch(err => showToast("Firebase Error: " + err.message, "error", 10000));
                   
                   showToast("Account Added"); 
                   setShowDebtModal(false);
+                  setDebtModalType('asset');
                 }} className="space-y-4">
                   <div className="flex bg-slate-100 p-1.5 rounded-2xl w-full">
                     <label className="flex-1 cursor-pointer">
-                      <input type="radio" name="accountType" value="asset" className="hidden peer" defaultChecked />
-                      <div className="text-center py-2.5 rounded-xl peer-checked:bg-indigo-600 peer-checked:text-white font-black text-xs uppercase transition-all shadow-sm">Bank Account</div>
+                      <input type="radio" value="asset" checked={debtModalType === 'asset'} onChange={(e) => setDebtModalType(e.target.value)} className="hidden peer" />
+                      <div className="text-center py-2.5 rounded-xl peer-checked:bg-indigo-600 peer-checked:text-white font-black text-[10px] uppercase transition-all shadow-sm">Bank</div>
                     </label>
                     <label className="flex-1 cursor-pointer">
-                      <input type="radio" name="accountType" value="debt" className="hidden peer" />
-                      <div className="text-center py-2.5 rounded-xl peer-checked:bg-rose-600 peer-checked:text-white font-black text-xs uppercase transition-all shadow-sm">Loan / Debt</div>
+                      <input type="radio" value="credit_card" checked={debtModalType === 'credit_card'} onChange={(e) => setDebtModalType(e.target.value)} className="hidden peer" />
+                      <div className="text-center py-2.5 rounded-xl peer-checked:bg-purple-600 peer-checked:text-white font-black text-[10px] uppercase transition-all shadow-sm">Credit</div>
+                    </label>
+                    <label className="flex-1 cursor-pointer">
+                      <input type="radio" value="debt" checked={debtModalType === 'debt'} onChange={(e) => setDebtModalType(e.target.value)} className="hidden peer" />
+                      <div className="text-center py-2.5 rounded-xl peer-checked:bg-rose-600 peer-checked:text-white font-black text-[10px] uppercase transition-all shadow-sm">Loan</div>
                     </label>
                   </div>
-                  <input name="name" placeholder="Bank or Card Name (e.g. HDFC Debt)" className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-bold mt-2" required />
+
+                  <input name="name" placeholder={debtModalType === 'credit_card' ? "Card Name (e.g. STC Pay)" : "Account Name (e.g. SABB Salary)"} className="w-full bg-slate-50 p-5 rounded-2xl border-none outline-none font-bold mt-2" required />
                   
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Currency</label>
                     <div className="flex bg-slate-50 p-3 rounded-2xl overflow-x-auto no-scrollbar gap-2">
                       {window.LAVENDER_CURRENCIES.map(c => (
                         <label key={c.code} className="cursor-pointer shrink-0">
-                          <input type="radio" name="currency" value={c.code} className="hidden peer" defaultChecked={(primaryCurrency === c.code)} />
-                          <div className="px-4 py-2 bg-white rounded-xl border border-slate-200 peer-checked:bg-slate-900 peer-checked:text-white peer-checked:border-slate-900 font-bold text-[10px] transition-all shadow-sm">
-                            {c.flag} {c.code}
-                          </div>
+                          <input type="radio" name="currency" value={c.code} checked={primaryCurrency === c.code} onChange={() => setPrimaryCurrency(c.code)} className="hidden peer" />
+                          <div className="px-4 py-2 bg-white rounded-xl border border-slate-200 peer-checked:bg-slate-900 peer-checked:text-white peer-checked:border-slate-900 font-bold text-[10px] transition-all shadow-sm">{c.flag} {c.code}</div>
                         </label>
                       ))}
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Initial Balance</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">{debtModalType === 'credit_card' ? "Current Outstanding Balance" : "Initial Balance"}</label>
                     <input name="amount" type="number" step="0.01" placeholder="0.00" className="w-full bg-slate-50 p-5 rounded-2xl border-none font-black text-2xl text-center outline-none focus:ring-2 ring-purple-200 transition-all" required />
                   </div>
+
+                  {debtModalType === 'credit_card' && (
+                    <div className="space-y-3 p-4 bg-purple-50 rounded-2xl border border-purple-100 mt-2">
+                      <div className="space-y-2"><label className="text-[10px] font-black uppercase text-purple-600 tracking-widest ml-1">Total Credit Limit</label><input name="creditLimit" type="number" step="0.01" placeholder="10000.00" className="w-full p-4 rounded-xl border border-purple-200 outline-none font-bold focus:ring-2 ring-purple-300" required /></div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-2"><label className="text-[10px] font-bold uppercase text-slate-500 ml-1">Statement Date</label><input name="statementDate" type="number" min="1" max="31" defaultValue="15" className="w-full p-3 rounded-xl border border-purple-200 outline-none" required /></div>
+                        <div className="space-y-2"><label className="text-[10px] font-bold uppercase text-slate-500 ml-1">Due Date</label><input name="paymentDueDate" type="number" min="1" max="31" defaultValue="5" className="w-full p-3 rounded-xl border border-purple-200 outline-none" required /></div>
+                      </div>
+                      <div className="space-y-2"><label className="text-[10px] font-bold uppercase text-slate-500 ml-1">Min Payment %</label><input name="minimumPaymentPercent" type="number" step="0.1" defaultValue="5" className="w-full p-3 rounded-xl border border-purple-200 outline-none" required /></div>
+                      <label className="flex items-center gap-3 bg-white p-3 rounded-xl shadow-sm cursor-pointer mt-2 border border-purple-100"><input type="checkbox" name="autoCreateBill" defaultChecked className="w-4 h-4 rounded" /><span className="text-xs font-bold text-slate-900">Auto-create as monthly bill</span></label>
+                    </div>
+                  )}
+
+                  {debtModalType === 'debt' && (
+                    <div className="space-y-3 p-4 bg-rose-50 rounded-2xl border border-rose-100 mt-2">
+                      <div className="space-y-2"><label className="text-[10px] font-black uppercase text-rose-600 tracking-widest ml-1">EMI Amount (Monthly Installment)</label><input name="emiAmount" type="number" step="0.01" placeholder="0.00" className="w-full p-4 rounded-xl border border-rose-200 outline-none font-bold focus:ring-2 ring-rose-300" /></div>
+                      <div className="space-y-2"><label className="text-[10px] font-bold uppercase text-slate-500 ml-1">EMI Due Date (1-31)</label><input name="emiDueDate" type="number" min="1" max="31" defaultValue="1" className="w-full p-3 rounded-xl border border-rose-200 outline-none" /></div>
+                      <label className="flex items-center gap-3 bg-white p-3 rounded-xl shadow-sm cursor-pointer mt-2 border border-rose-100"><input type="checkbox" name="autoCreateBill" defaultChecked className="w-4 h-4 rounded" /><span className="text-xs font-bold text-slate-900">Auto-create EMI as monthly bill</span></label>
+                    </div>
+                  )}
                   
-                  <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black uppercase tracking-widest mt-2 hover:bg-slate-800 active:scale-95 transition-all shadow-lg">Save Record</button>
+                  <button type="submit" className="w-full bg-slate-900 text-white p-5 rounded-2xl font-black uppercase tracking-widest mt-4 hover:bg-slate-800 active:scale-95 transition-all shadow-lg">Save Record</button>
                 </form>
               </div>
             </div>
@@ -1050,6 +1177,35 @@
 
       return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+          {/* FEATURE 6: Upcoming Bills Warning */}
+          {(() => {
+            const urgentBills = stats.commitmentList.filter(bill => {
+              if (bill.isPaid) return false;
+              return bill.daysUntilDue <= 7 || bill.isOverdue;
+            });
+            if (urgentBills.length === 0) return null;
+            return (
+              <div className="bg-amber-50 border border-amber-200 p-6 rounded-[2.5rem] shadow-sm animate-in fade-in zoom-in duration-500">
+                <h3 className="text-[10px] font-black text-amber-700 uppercase tracking-[0.2em] flex items-center gap-2 mb-4">
+                  <AlertTriangle size={14} /> Upcoming Bills
+                </h3>
+                <div className="space-y-3">
+                  {urgentBills.map(bill => (
+                    <div key={bill.id} className="flex justify-between items-center bg-white p-4 rounded-2xl border border-amber-100 shadow-sm">
+                      <div>
+                        <p className="text-sm font-black text-slate-800">{bill.name}</p>
+                        <p className={`text-[9px] font-black uppercase mt-1 ${bill.isOverdue ? 'text-rose-500' : 'text-amber-600'}`}>
+                          {bill.isOverdue ? `OVERDUE` : `Due ${bill.dueDate}th`}
+                        </p>
+                      </div>
+                      <p className="font-black text-sm text-slate-900">{formatMoney(bill.remainingSAR)}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white space-y-8 shadow-2xl relative overflow-hidden">
             <div className="absolute top-0 right-0 w-40 h-40 bg-purple-500/20 rounded-full -mr-20 -mt-20 blur-3xl"></div>
             
@@ -1095,6 +1251,58 @@
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Spent Today</p>
                 <p className="text-2xl font-black text-slate-800">{formatMoney(stats.todaySpendSAR)}</p>
               </div>
+            </div>
+          </div>
+
+          {/* FEATURE 4: Monthly Overview */}
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Monthly Overview</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-emerald-50 p-5 rounded-[2rem] border border-emerald-100">
+                <p className="text-[8px] font-black text-emerald-600 uppercase tracking-widest">Total Income</p>
+                <p className="text-xl font-black text-emerald-700 mt-1">{formatMoney(stats.incSAR)}</p>
+              </div>
+              <div className="bg-rose-50 p-5 rounded-[2rem] border border-rose-100">
+                <p className="text-[8px] font-black text-rose-600 uppercase tracking-widest">Expenses</p>
+                <p className="text-xl font-black text-rose-700 mt-1">{formatMoney(stats.expSAR)}</p>
+              </div>
+              <div className="bg-indigo-50 p-5 rounded-[2rem] border border-indigo-100">
+                <p className="text-[8px] font-black text-indigo-600 uppercase tracking-widest">Bills Left</p>
+                <p className="text-xl font-black text-indigo-700 mt-1">{formatMoney(stats.unpaidCommitmentsSAR)}</p>
+              </div>
+              <div className="bg-purple-50 p-5 rounded-[2rem] border border-purple-100">
+                <p className="text-[8px] font-black text-purple-600 uppercase tracking-widest">Target Save</p>
+                <p className="text-xl font-black text-purple-700 mt-1">{formatMoney(stats.lockedSavings)}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* FEATURE 5: Category Spending Breakdown */}
+          <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
+            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-6">Spending Breakdown</h3>
+            <div className="space-y-5">
+              {Object.entries(stats.categoryTotals)
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, 6)
+                .map(([category, amountSAR]) => {
+                  const percentage = stats.expSAR > 0 ? (amountSAR / stats.expSAR) * 100 : 0;
+                  return (
+                    <div key={category} className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs font-bold text-slate-700 truncate w-40">{category}</span>
+                        <span className="text-xs font-black text-slate-900">{formatMoney(amountSAR)}</span>
+                      </div>
+                      <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden shadow-inner">
+                        <div className="h-2 rounded-full bg-indigo-500 transition-all duration-1000" style={{ width: `${percentage}%` }}></div>
+                      </div>
+                    </div>
+                  );
+                })}
+              {Object.keys(stats.categoryTotals).length === 0 && (
+                <div className="py-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                   <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">No Data This Month</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1167,6 +1375,9 @@
                       <div className="overflow-hidden">
                         <p className="font-bold text-base text-slate-800 leading-tight truncate w-40">{t.merchant}</p>
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{t.category}</p>
+                        <p className="text-[9px] text-slate-300 font-medium mt-0.5">
+                          {parseDate(t.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </p>
                       </div>
                     </div>
                     <div className="text-right">
@@ -1183,8 +1394,12 @@
             })}
             {filteredLogs.length === 0 && (
               <div className="text-center py-20 bg-white rounded-[2rem] border border-slate-200">
-                <FileText className="mx-auto text-slate-300 mb-3" size={32} />
-                <p className="text-sm font-bold text-slate-400">No logs found.</p>
+                <FileText className="mx-auto text-slate-200 mb-4" size={48} />
+                <p className="text-lg font-black text-slate-300">No Transactions</p>
+                <p className="text-xs text-slate-400 font-medium mt-1 px-8 leading-relaxed">Your spending history will appear here once you start logging transactions.</p>
+                <button onClick={() => setShowAddModal(true)} className="mt-8 bg-slate-900 text-white px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest">
+                   + Add First Record
+                </button>
               </div>
             )}
           </div>
@@ -1205,7 +1420,13 @@
             <h3 className="text-4xl font-black mt-1 relative z-10">{formatMoney(stats.unpaidCommitmentsSAR)}</h3>
           </div>
           <div className="space-y-3">
-            {stats.commitmentList.map(item => (
+            {stats.commitmentList
+              .sort((a, b) => {
+                if (a.isPaid !== b.isPaid) return a.isPaid ? 1 : -1;
+                if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
+                return a.daysUntilDue - b.daysUntilDue;
+              })
+              .map(item => (
               <div key={item.id} className={`bg-white p-5 rounded-[2rem] border ${item.isPaid ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200'} flex items-center justify-between shadow-sm`}>
                 <div className="flex items-center gap-4">
                   <div className={`p-3 rounded-2xl ${item.isPaid ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}><CalendarCheck size={20} /></div>
@@ -1213,13 +1434,35 @@
                     <p className="font-bold text-slate-800 leading-tight">{item.name}</p>
                     <div className="flex items-center gap-2 mt-1">
                       <p className="text-[10px] text-slate-500 font-bold uppercase bg-slate-100 px-2 py-0.5 rounded-md">{item.amount} {item.currency}</p>
-                      {item.isPaid && <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Paid</span>}
+                      <div className="flex items-center gap-2">
+                        {item.isOverdue && !item.isPaid ? (
+                          <span className="text-[9px] font-black text-rose-600 uppercase bg-rose-50 px-2 py-0.5 rounded-md">
+                            OVERDUE
+                          </span>
+                        ) : !item.isPaid ? (
+                          <span className="text-[9px] font-black text-amber-600 uppercase bg-amber-50 px-2 py-0.5 rounded-md">
+                            Due in {item.daysUntilDue} days
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">Paid ✓</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
                 <button onClick={() => setConfirmDelete({ col: 'commitments', id: item.id, title: 'Bill' })} className="p-3 text-slate-300 hover:text-rose-500 transition-colors bg-slate-50 hover:bg-rose-50 rounded-xl"><Trash2 size={16} /></button>
               </div>
             ))}
+            {stats.commitmentList.length === 0 && (
+              <div className="text-center py-16 bg-white rounded-[2rem] border border-slate-200">
+                <CalendarCheck className="mx-auto text-slate-200 mb-4" size={48} />
+                <p className="text-lg font-black text-slate-300 mb-2">No Bills Tracked</p>
+                <p className="text-xs text-slate-400 font-medium mb-6 px-8">Add your recurring bills like rent, insurance, subscriptions to never miss a payment.</p>
+                <button onClick={() => setShowCommitmentModal(true)} className="bg-slate-900 text-white px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest">
+                  + Add First Bill
+                </button>
+              </div>
+            )}
           </div>
         </div>
       );
@@ -1241,7 +1484,7 @@
 
           <div className="space-y-3">
             <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Bank Accounts / Assets</h3>
-            {stats.realtimeDebts.filter(d => d.type !== 'debt').map(asset => (
+            {stats.realtimeDebts.filter(d => d.type === 'asset').map(asset => (
               <div key={asset.id} className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600"><Landmark size={20} /></div>
@@ -1262,8 +1505,40 @@
             ))}
           </div>
 
+          <div className="space-y-4 pt-4">
+            <h3 className="text-[10px] font-black uppercase text-purple-500 tracking-widest px-1">Credit Cards</h3>
+            {stats.realtimeDebts.filter(d => d.type === 'credit_card').map(card => {
+              const usagePercent = card.usagePercent || 0;
+              return (
+                <div key={card.id} className="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-[2.5rem] text-white shadow-xl relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-10 -mt-10 blur-2xl"></div>
+                  <div className="flex justify-between items-start mb-6 relative z-10">
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{card.name}</p>
+                      <p className="text-2xl font-black mt-1 leading-none">{formatMoney(card.realtimeBalanceSAR)}</p>
+                      <p className="text-[10px] text-slate-500 mt-2 font-bold uppercase">of {formatMoney(card.creditLimit, card.currency)} limit</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Available</p>
+                      <p className="text-lg font-black text-emerald-400 mt-1 leading-none">{formatMoney(card.availableCreditSAR)}</p>
+                      <button onClick={() => setConfirmDelete({ col: 'debts', id: card.id, title: 'Card' })} className="mt-4 p-2 bg-white/10 hover:bg-rose-500/20 hover:text-rose-400 rounded-lg transition-all"><Trash2 size={14} /></button>
+                    </div>
+                  </div>
+                  <div className="w-full bg-white/10 rounded-full h-2 mb-4 relative z-10">
+                    <div className={`h-2 rounded-full transition-all duration-1000 ${usagePercent > 80 ? 'bg-rose-500' : usagePercent > 50 ? 'bg-amber-500' : 'bg-emerald-500'}`} 
+                         style={{ width: `${Math.min(usagePercent, 100)}%` }}></div>
+                  </div>
+                  <div className="flex justify-between text-[9px] text-slate-400 font-black uppercase tracking-widest relative z-10">
+                    <span>{usagePercent.toFixed(0)}% Used</span>
+                    <span>Due Day: {card.paymentDueDate}th</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
           <div className="space-y-3 pt-4">
-            <h3 className="text-[10px] font-black uppercase text-rose-400 tracking-widest px-1">Credit Cards / Loans</h3>
+            <h3 className="text-[10px] font-black uppercase text-rose-400 tracking-widest px-1">Active Loans</h3>
             {stats.realtimeDebts.filter(d => d.type === 'debt').map(debt => (
               <div key={debt.id} className="bg-white p-5 rounded-[2rem] border border-rose-100 shadow-sm flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -1273,17 +1548,28 @@
                     <div className="flex items-center gap-2 mt-1">
                       <p className="text-sm font-black text-rose-600">{formatMoney(debt.realtimeBalanceSAR)}</p>
                       {debt.currency !== 'SAR' && (
-                        <p className="text-[10px] font-bold text-rose-400 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-100">
+                        <p className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-100">
                           {debt.realtimeBalanceOriginal.toLocaleString(undefined, { maximumFractionDigits: 0 })} {debt.currency}
                         </p>
                       )}
                     </div>
                   </div>
                 </div>
-                <button onClick={() => setConfirmDelete({ col: 'debts', id: debt.id, title: 'Debt' })} className="p-3 text-slate-300 hover:text-rose-500 bg-slate-50 rounded-xl transition-all shadow-sm"><Trash2 size={16} /></button>
+                <button onClick={() => setConfirmDelete({ col: 'debts', id: debt.id, title: 'Loan' })} className="p-3 text-slate-300 hover:text-rose-500 bg-slate-50 rounded-xl transition-all shadow-sm"><Trash2 size={16} /></button>
               </div>
             ))}
           </div>
+
+          {stats.realtimeDebts.length === 0 && (
+            <div className="text-center py-16 bg-white rounded-[2rem] border border-slate-200">
+              <Landmark className="mx-auto text-slate-200 mb-4" size={48} />
+              <p className="text-lg font-black text-slate-300 mb-2">No Accounts Yet</p>
+              <p className="text-xs text-slate-400 font-medium mb-6 px-8">Link your bank accounts, credit cards, and loans to track your complete financial picture.</p>
+              <button onClick={() => setShowDebtModal(true)} className="bg-slate-900 text-white px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest">
+                + Add First Account
+              </button>
+            </div>
+          )}
         </div>
       );
     }
